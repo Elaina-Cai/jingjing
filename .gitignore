@@ -1,0 +1,219 @@
+# ============================================================
+#  银月 · .gitignore
+#  原则：密钥 / 运行时数据 / 外部二进制 / 巨型素材 / 一次性脚本 一律不入库
+#  建立于 2026-09-27
+# ============================================================
+
+# ---------- 密钥与本地配置（最高优先级：绝不入库）----------
+# .env 含 6 个真实 API Key + WECHAT_KEY；33 个 .env.bak_* 是历史副本
+.env
+.env.*
+!.env.example
+
+# ---------- 运行时数据（体积大且含隐私）----------
+# 备份走 python scripts/backup_all.py，不靠 git
+# data/ 整体不进仓；下面四行只给梗库词条索引开一个例外。
+# （不能写成 `data/`：目录整体被排除后 git 不会进去看后面的 `!` 例外）
+/data/*
+!/data/web_memes/
+/data/web_memes/*
+!/data/web_memes/memes_index.json
+# 其余素材（audio 4.1GB / transcripts / extracted / 登录凭据）一律不进仓。
+logs/
+backups/
+
+# ---------- Python 缓存与虚拟环境 ----------
+__pycache__/
+*.py[cod]
+*$py.class
+.pycache_prefix/
+.venv/
+.venv_it/
+.venv_new/
+.venv_*/
+venv/
+ENV/
+env/
+build/
+develop-eggs/
+*.egg-info/
+.pytest_cache/
+pytest-cache-files-*/
+# tests/_tempdirs.py 的基座（系统 TEMP 不可用时的测试临时根；跑完即弃）
+.test_tmp/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 注意：web/frontend/dist 不忽略 —— web/app.py 以 StaticFiles 挂载它，
+# 部署流程没有 npm build 步骤，它是运行时的实际产物。
+
+# ---------- Node / 前端依赖 ----------
+node_modules/
+package-lock.json.bak
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- 外部二进制与平台运行时 ----------
+napcat/
+
+# ---------- 巨型媒体素材（单目录 13G，语音训练用动漫原视频）----------
+银月语音（动漫原视频）/
+
+# ---------- 一次性脚本 / 探针 / 临时输出（历史遗留，勿再提交）----------
+# 全部以 / 锚定仓库根目录，避免误伤 core/__init__.py、agents/tools/base.py 等
+/_*.py
+/tmp_*.py
+/.tmp_*
+/tmp*/
+/*.log
+/faulthandler.log
+/_*.txt
+/_*.json
+/_*.md
+/*_out.txt
+/*_dump.txt
+/*_scan.txt
+/*_hit.txt
+
+# WP-01b（2026-10-06）：根目录历史残留（探针/评测输出/缓存）。
+# 部分目录当前仍被 ACL 拒绝访问，git 也不该把它们当未跟踪项。
+/corr_*/
+/probe2_*/
+/.tmp/
+
+# 根目录历史遗留的配置/清单（已废弃）
+/_constraints.txt
+/_s1_train_config.yaml
+/_tts_infer_v11.yaml
+/startup_guide.md
+/启动方式.md
+/project_architecture.html
+
+# ---------- 编辑器 / 系统 ----------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+Thumbs.db
+Desktop.ini
+.dsh-meow/
+
+# ---------- 凭据（最高优先级）----------
+# 真实的 Netscape cookie 文件，含 .bilibili.com 登录凭据
+/bilibili_cookies.txt
+
+# ---------- 根目录遗留的日志 / 诊断产物 / 探针（均无代码引用）----------
+/@AutomationLog.txt
+/api_stderr.txt
+/api_stdout.txt
+/s1_train_log.txt
+/wx4py_send_audit.jsonl
+/yinyue_test*trace*.jsonl
+/diag_raw.db
+/probe_here.db
+/probe_tools.py
+/probe_*.py
+/project_architecture_old.html
+/weight.json
+
+# ---------- 语音训练遗留产物（体积大、无代码引用）----------
+# 仅被根目录 tmp_asr_*.py 临时脚本用过；原素材在 银月语音（动漫原视频）/
+/ref_embeddings.npy
+/ref_index.json
+/*.mp3
+/*.npy
+
+# ---------- 归档的一次性脚本与产物（目录已清空，规则防御性保留）----------
+# 2026-09-27 曾从仓库根目录移入 scripts/_scratch/（447 项 / 49MB）；
+# 2026-10-01 commit 458ca90 已把归档整体删除，现仅剩 wp01b 少量未跟踪文件。
+# 上面那批 /_*.py、/tmp_*.py、/.tmp_* 是「根锚定」规则，管不到这个目录，
+# 所以这里仍单独排除 scripts/_scratch/*，避免历史残留或将来的临时产物又被 git 收进来。
+# 用 /* 而非 / —— 目录本身不因此被忽略，将来若要长期保留某个文件仍可单独放行。
+scripts/_scratch/*
+# pip 安装/构建残留（含 .whl 解包目录；每次 pip 会新建一个随机名）
+pip-unpack-*/
+pip-build-tracker-*/
+pip-ephem-wheel-cache-*/
+pip-install-*/
+
+# ---------- 测试临时目录（pytest 用例 tempfile.mkdtemp 的确定性前缀）----------
+# tests/test_web_meme_lib.py 每条用例建一个临时素材库；用例结束不清理，会落在仓库根目录。
+meme_lib_*/
+meme_prov_*/
+
+# ---------- 浏览器(Firefox)临时库/凭据（根目录散落；代码零引用，git 无价值）----------
+ff_db_*.sqlite
+ff_cookies_*.sqlite
+
+# core/data/debug：OCR 调试图（运行时临时产物，不进仓）
+/core/data/debug/
+
+# 回放量表产物（含真实语料，不入仓）
+bench/
+# jieba 分词缓存（本机运行时产物）
+jieba.cache
+# 评审用真实语料导览（含原始对话，不入仓）
+docs/_review_*.md
+bench_retrieval_jieba.cache
+# recall-chain runtime artifacts (row vectors / fts index / jieba cache)
+data/recall_chain/
+
+hb_*/
+pytest-of-Elaina/
+
+# 无头 Edge 临时 profile（每次截图都会新建）
+edge_cdp_*/
+
+# 测试临时目录（TEMP 不可用时 mkdtemp 会落到仓库根）
+turn_trace_*/
+
+# output/ 整体不进仓；下面五行只给「3D 图」开例外——它是全仓库命名的唯一来源，
+# 图丢了就得从零重画（docs/decisions/三面总图.png 就曾因为 output/ 被忽略而无版本历史）。
+# （同 data/ 的写法：目录整体被排除后 git 不会进去看后面的 `!` 例外）
+/output/*
+!/output/3d/
+/output/3d/*
+!/output/3d/viewer_css.html
+!/output/3d/t_*.png
+
+data/persona/source/
+data/persona/cards/
+data/persona/active.json
+*.bak_*
+
+# 人格原文与编译产物（含第三方 IP，不进仓库）
+# 备份与临时探针
+_t_*.py
+_probe*.py
+# UI 截图自检产物
+.uicheck/
+
+# --- 2026-10-25 清理：开发过程残留（备份/调试产物/截图） ---
+*.bak
+*.bak_*
+*.probe_bak
+*.old_named_target
+.uicheck/
+logs/_*
+output/_*
+/_*.py
+/_*.txt
+.tmp_*.json
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# ---------- 2026-10-29：大件一次性素材，绝不进历史 ----------
+/喵喵喵.zip
+/参考案例内容图片（需识别图片内文字内容）/
+
+# 图标调试截图与无头浏览器的 profile（2026-10-29 从库里移出，见踩坑档案）
+assets/icon/_debug/
+assets/icon/_edge_profile/
+
+# 架构文档的离线图表库（5MB，本地渲染用；缺了就回落到 CDN）
+/架构精读记录-模块协作全景_files/

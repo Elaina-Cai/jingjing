@@ -1,0 +1,146 @@
+# ============================================================
+#  鲸鲸 · 项目元数据与工具配置
+# ============================================================
+#  这是一个**应用**，不是可分发库：不做打包安装，直接从项目目录运行
+#  （代码靠 `cd 项目目录` + sys.path 导入，见 README）。
+#
+#  依赖以 requirements*.txt 为唯一来源，故此处刻意不重复声明 dependencies，
+#  避免两处漂移：
+#      requirements.txt           核心运行时
+#      requirements-optional.txt  可选增强
+#      requirements-dev.txt       开发工具
+# ============================================================
+
+[project]
+name = "yinyue"
+version = "0.1.0"
+description = "鲸鲸 —— 常驻 Windows 的拟人化社交智能体（微信 / QQ）"
+readme = "README.md"
+requires-python = ">=3.12"
+
+# ------------------------------------------------------------
+# pytest 配置
+# ------------------------------------------------------------
+# 为什么这里几乎「什么都不做」——两点必须知道：
+#
+# ① tests/ 下的用例**不是 pytest 套件**，而是独立可执行脚本，约定为
+#        def test_xxx() -> bool      # return False = 失败
+#        def main() -> bool
+#        if __name__ == "__main__": raise SystemExit(0 if main() else 1)
+#    唯一受支持的跑法是：
+#        python scripts/run_all_tests.py
+#    必须用那个 runner 的原因：它会把日志/trace 改道做隔离
+#    （YINYUE_MEMORY_RECALL_TRACE_PATH / YINYUE_ADMISSION_TRACE_PATH），
+#    否则测试夹具会写进 logs/ 里的真实 trace，污染校准回放凭据。
+#    直接 pytest 收集不会做这个隔离 —— 所以这里把 tests/ 排除掉。
+#
+# ② 即使被收集，也不会有正确结果：pytest 会**忽略测试函数的返回值**
+#    （只发 PytestReturnNotNoneWarning）。本项目大量用例用 `return False`
+#    表示失败，被 pytest 收集后失败会被记成 PASSED —— 假绿，比配置失效更危险。
+#    故把该警告升级为 error：一旦有人误收，立刻炸出来而不是悄悄通过。
+#
+# 若将来确需用 pytest 写新用例（2026-10-20 已发生）：**放进 tests/pytest_style/**，
+# 用 `python scripts/run_pytest_suite.py` 跑。那个脚本会显式给文件路径并用
+# `-o python_files=test_*.py` 覆盖本节的屏蔽，同时把 TMP/TEMP 指到 .test_tmp 做隔离。
+# 不要把 pytest 风格用例放回 tests/ 根：脚本 runner（glob tests/test_*.py）会把它当成
+# 「零用例 exit 0」的假绿，而 pytest 又会把 `return False` 的失败记成 PASSED。
+[tool.pytest.ini_options]
+# `.test_tmp/` 必须排除：它是测试隔离目录，残留 500+ 个由测试自己建的目录，pytest 走进去会抛 `PermissionError: [WinError 5]`，一次 `pytest .` 曾因此报 335 个
+# 收集错误（2026-10-29 查清：不是代码坏了，是收集范围错了）。
+# 关键：把收集模式设成一个永不匹配的模式，让 pytest 在本项目**收集不到任何用例**。
+# 只用 norecursedirs 不够 —— 它仅作用于目录递归，不覆盖仓库根目录下的散落文件
+# （根目录有 tmp_*_test.py / .tmp_*_test.py 等历史脚本，会被误收并报错）。
+python_files = ["__no_pytest_collection__*.py"]
+norecursedirs = [
+    "tests",
+    ".test_tmp",
+    ".git",
+    "node_modules",
+    "assets",
+    "*参考案例图片*",
+    "backups",
+    "data",
+    "logs",
+    "output",
+    "napcat",
+    "web/frontend",
+    "tools",
+    ".venv",
+    ".venv_it",
+    ".pycache_prefix",
+]
+# 第二道保险：真被误收时，返回值非 None 立刻报错而非静默通过。
+filterwarnings = [
+    "error::pytest.PytestReturnNotNoneWarning",
+]
+
+# ------------------------------------------------------------
+# ruff 配置（静态检查）
+# ------------------------------------------------------------
+# 跑法：
+#     ruff check .              # 报告问题
+#     ruff check . --statistics # 按规则看债务分布
+# ruff 装在 requirements-dev.txt 里。
+#
+# 设计取舍（2026-09-27 首次引入 lint，故采取「诚实记录债务」而非「一把梭修」）：
+#
+# · 不启用 E501（行长）：本条只由 line-length 记录规范值，不作为门禁。
+#   历史代码有 349 行超过 100 字符，一次性对齐会淹没真正的告警。
+#
+# · 不自动批量修 F401（未用导入，186 处）：**这个代码库不能盲删导入**。
+#   项目大量依赖「导入即注册」的副作用（运行时可见 account_db_registered /
+#   provider_registered / intent_executor_registered 等日志），
+#   自动删「看起来没用」的导入有可能静默摘掉注册，而回归测试未必覆盖。
+#   另：F841（未用变量）同理 —— `--fix` 视为 unsafe，因为赋值可能有副作用。
+#   这两类需人工逐个确认，见 README「已知工程债」。
+#
+# · E402（导入不在文件顶部，29 处）是项目既有约定：多处必须先
+#   sys.path.insert / load_dotenv 再导入。列为忽略项，不做重构。
+#
+# · F403（import *，18 处）全部出现在 __init__.py 的包再导出，按包惯例放行。
+#
+# 当前剩余告警主要就是 F401 / F841 / F811，数量见 README。
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+    "scripts/_scratch",
+    "backups",
+    "data",
+    "logs",
+    "output",
+    "napcat",
+    "web/frontend",
+    "tools",
+    ".venv",
+    ".venv_it",
+    ".pycache_prefix",
+    ".workbuddy",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W", "T201"]
+ignore = [
+    "E501",  # 行长：line-length 已记录规范值，不作门禁（见上方说明）
+    "E402",  # sys.path / load_dotenv 必须先于导入（项目既有约定）
+    "F401",  # 未用导入：存在「导入即注册」副作用，禁止盲删，需人工确认
+    "F403",  # import *：仅 __init__.py 的包再导出
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 脚本工具与测试是独立可执行文件，允许 sys.path hack 后导入
+"scripts/*.py" = ["E402", "T201"]
+"tests/*.py" = ["E402", "T201"]
+# 这些文件的 print 就是它们的输出通道（python -m xxx / python run.py 的 CLI 回显）
+"loop/run.py" = ["T201"]
+"loop/tick.py" = ["T201"]
+"loop/desk.py" = ["T201"]
+"core/infra/log_rotate.py" = ["T201"]
+"core/infra/roles.py" = ["T201"]
+"core/infra/migrate.py" = ["T201"]
+"core/conversation/tune.py" = ["T201"]
+"core/conversation/report.py" = ["T201"]
+"core/execution/wx_diagnose.py" = ["T201"]
+"db/sync_sentinel.py" = ["T201"]
+"db/wechat_keyring.py" = ["T201"]
+"core/infra/acl.py" = ["T201"]

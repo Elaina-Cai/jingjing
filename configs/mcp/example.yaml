@@ -1,0 +1,15 @@
+# MCP 服务器的唯一模板（docs/decisions/工具包.md §17.3）
+#
+# 生效要过三道闸：
+#   1. 这个文件里写 `enabled: true`
+#   2. 调用点 bind_servers(enable=True)
+#   3. 工具登记后仍是 disabled，要 registry.enable(名字)（人手动开）
+#
+# MCP 工具一律被强制标成 effects={read}：写动作与外部发送永远不经过 MCP。
+# command 用参数数组，shell=False；命令里写 `&&` 不会被解释。
+name: demo_mcp
+command: [python, -m, demo_mcp_server]
+timeout_s: 8
+allow_tools: []          # 空 = 全放（仍受 deny 约束）
+deny_tools: []           # 永远优先：命中的工具连登记都不登记
+enabled: false           # 由人改 true

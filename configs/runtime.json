@@ -1,0 +1,19 @@
+{
+  "_comment": "运行时唯一真相源（2026-10-26 配置收口）。改这里 + 重启鲸鲸.bat 生效。",
+  "engine_port": 39871,
+  "engine_poll_s": 0.4,
+  "watchdog_interval_s": 5.0,
+  "desktop_boot_timeout_s": 30.0,
+  "sentinels": {
+    "scheduler": "logs/scheduler.stop",
+    "loop": "logs/loop.stop",
+    "watchdog": "logs/watchdog.stop"
+  },
+  "quiet_hours": [
+    23,
+    7
+  ],
+  "tempo": {
+    "brain.same_target": 25000
+  }
+}

@@ -1,0 +1,66 @@
+# 鲸鲸 · 运行时依赖
+#
+# 安装: pip install -r requirements.txt
+# 平台: 仅 Windows（微信自动化依赖 Win32 UI API）
+# Python: >= 3.12
+#
+# 版本下限 = 2026-09-27 本机 .venv_it 实测可用版本。
+# 修改依赖时请同步验证 scripts/run_all_tests.py 全绿。
+#
+# 可选增强依赖见 requirements-optional.txt；开发工具见 requirements-dev.txt。
+
+# ---------- Web / API ----------
+fastapi>=0.141.1
+starlette>=1.6.0
+uvicorn>=0.49.0
+python-multipart>=0.0.32          # FastAPI 的 UploadFile / File 必需（未被直接 import，勿删）
+httpx>=0.28.1
+websockets>=15.0.1
+
+# ---------- 配置与数据模型 ----------
+pydantic>=2.13.5
+pydantic-settings>=2.14.1
+
+# ---------- 数据库 ----------
+SQLAlchemy>=2.0.51
+alembic>=1.19.1                   # 迁移占位（实际迁移在 db/migrations.py）
+
+# ---------- 记忆检索 ----------
+
+# ---------- LLM / 语音合成 ----------
+openai>=3.6.0                     # DeepSeek / SiliconFlow / MiniMax 均走 OpenAI 兼容协议
+edge-tts>=7.2.8
+
+# ---------- 日志 ----------
+structlog>=26.1.0
+
+# ---------- 调度 ----------
+schedule>=1.2.2
+
+# ---------- 压缩 / 加解密 ----------
+lz4>=4.4.5
+zstandard>=0.25.0
+pycryptodomex>=3.23.0             # Cryptodome.* —— 微信 DB / 表情包解密（全项目唯一加密实现）
+
+# ---------- 图像 / 多媒体 / 中文处理 ----------
+pillow>=12.3.0
+numpy>=2.5.2
+opencv-python>=5.0.0.93
+imageio-ffmpeg>=0.6.0
+pydub>=0.25.1
+rapidocr-onnxruntime>=1.2.3       # OCR
+jieba>=0.42.1                     # 中文分词
+
+# ---------- 文件监控 / 通用 ----------
+watchdog>=6.0.0
+psutil>=7.2.2
+python-dotenv>=1.2.2
+python-dateutil>=2.9.0.post0
+pyperclip>=1.11.0
+
+# ---------- Windows 平台专属 ----------
+pywin32>=312                      # win32gui / win32con / win32process / win32com
+uiautomation>=2.0.29              # 微信 UI 自动化
+pymem>=1.14.0                     # 读微信进程内存（提取数据库密钥）
+comtypes>=1.4.16
+pystray>=0.19                     # 启动器托盘图标；缺失时降级为无托盘（代码已守卫）

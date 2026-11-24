@@ -1,0 +1,17 @@
+{
+  "_comment": "Phase 0 shadow account-link graph. Copy to configs/account_links.json. Links are undirected and transitive. No link means accounts are different people for query visibility.",
+  "links": [
+    {
+      "a": {"platform": "wechat", "account_id": "yinyue_account_a"},
+      "b": {"platform": "wechat", "account_id": "yinyue_account_b"}
+    }
+  ],
+  "manual_sources": [
+    {
+      "platform": "wechat",
+      "account_id": "yinyue_account_a",
+      "person_id": "person_xxx",
+      "source_account_id": "yinyue_account_b"
+    }
+  ]
+}

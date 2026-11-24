@@ -1,0 +1,64 @@
+# configs/llm.example.toml -- 复制为 configs/llm.toml 后生效（TOML，tomllib，零新依赖）
+version = 1
+
+[routing]
+default = "deepseek"
+fallback = ["deepseek", "strong"]
+on_missing_capability = "downgrade"     # downgrade | fail
+max_retries = 2                         # 默认与旧硬编码一致
+retry_on_rate_limit = false             # 默认关（旧行为：限流不重试）
+legacy_provider = ""                    # 仅校验/展示用，不参与路由（旧 PROVIDER）
+
+[routing.agents]
+conversational = "strong"
+speak_render = "strong"
+# legacy 等价项（旧 _FAST_CHAT_AGENTS；Router 不硬编码 agent 名，见 §4.3）
+[routing.agents.fast_chat]
+endpoint = "ollama"
+only_kind = "chat"
+on_circuit_open = "fallback"            # 熔断打开 -> 走 routing.fallback；调用失败不回落
+[routing.agents.fast_tool_format]
+endpoint = "ollama"
+only_kind = "chat"
+on_circuit_open = "fallback"
+
+[routing.kinds.vision]
+lead = ["dashscope"]                    # 有 dashscope key 时插链首（旧 behavior: client.py:590-593）
+
+[endpoints.deepseek]
+kind = "openai_compat"
+base_url = "https://api.deepseek.com/v1"
+api_key_env = "DEEPSEEK_API_KEY"
+model = "deepseek-chat"
+timeout = 30.0
+[endpoints.deepseek.spec]
+temperature = 0.3
+max_tokens = 2000
+[endpoints.deepseek.capabilities]
+tools = true
+vision = true
+json_mode = true
+streaming = true
+stream_usage = true                     # 流式带 include_usage；端点不认识时运行时自动去掉重试（§4.3）
+context_window = 65536
+[endpoints.deepseek.pricing]
+currency = "CNY"
+input_per_mtok = 0.0
+output_per_mtok = 0.0
+
+[endpoints.strong]
+kind = "openai_compat"
+base_url = "https://api.siliconflow.cn/v1"
+api_key_env = "SILICONFLOW_API_KEY"     # 仅示例：旧 env 不会自动生成该端点（§6）
+model = "Qwen3-235B-A22B-Instruct"
+[endpoints.strong.capabilities]
+tools = true
+vision = false
+streaming = true
+stream_usage = true
+context_window = 128000
+
+[budgets]
+daily_tokens = 500000
+[budgets.per_agent]
+conversational = 200000

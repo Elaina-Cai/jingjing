@@ -1,0 +1,18 @@
+{
+  "name": "example_window_candidate",
+  "notes": "示例候选（不代表推荐）：上下文从现状「30 条全文 + 6 条流水召回」换成新窗口「40 条全文 + 更早压缩 + 场外补充」。演示 spec 写法：真实候选复制本文件改字段即可。",
+  "baseline": {
+    "context": "current",
+    "system_mode": "online",
+    "mode": "regen",
+    "temperature": 0.7,
+    "max_tokens": 180
+  },
+  "candidate": {
+    "context": "window",
+    "system_mode": "online",
+    "temperature": 0.7,
+    "max_tokens": 180
+  },
+  "extras": {}
+}

@@ -1,0 +1,3151 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="icon" href="icon.ico?v=1793026942">
+<link rel="apple-touch-icon" href="icon.ico?v=1793026942">
+<title>鲸鲸 · 控制台</title>
+<style>
+:root{
+  --bg:#0f1215; --panel:#161a1e; --panel2:#0a0d10; --line:#242a30; --line2:#313941;
+  --fg:#e7eae8; --dim:#8b959d; --dim2:#5d666d;
+  --ok:#7fb08a; --warn:#e0913f; --bad:#cf5a4e; --accent:#33b0a6;
+  --r:14px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.55 "Microsoft YaHei UI","Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+#app{display:grid;grid-template-columns:186px minmax(0,1fr) 320px;height:100vh;overflow:hidden}
+/* 窄屏（<=1180 CSS px）：收起右侧 rail，头部允许换行，避免内容被挤出屏幕 */
+@media (max-width:1180px){
+  #app{grid-template-columns:174px minmax(0,1fr) 0}
+  aside.rail{display:none}
+  header{white-space:normal;flex-wrap:wrap;row-gap:6px;overflow:visible}
+}
+/* 小本本长句强制断行，防止横向溢出 */
+#nb-days div,#nb-memo div{overflow-wrap:anywhere;word-break:break-word;max-width:100%}
+
+/* 左：房间 */
+.nav{background:var(--panel2);border-right:1px solid var(--line);padding:16px 12px;display:flex;
+  flex-direction:column;gap:4px;min-height:0;overflow-y:auto}
+.brand{font-size:17px;font-weight:700;letter-spacing:1px;padding:4px 10px 14px}
+.brand span{display:block;font-size:12px;font-weight:400;color:var(--dim2);letter-spacing:2px}
+.navbtn{appearance:none;border:0;background:transparent;color:var(--dim);text-align:left;
+  padding:9px 12px;border-radius:1px;cursor:pointer;font-size:13.5px;display:flex;justify-content:space-between;align-items:center}
+.navbtn:hover{background:#1b1f22;color:var(--fg)}
+.navbtn.on{background:#22272b;color:#eef3f0;box-shadow:inset 2px 0 0 var(--accent)}
+.navbtn em{font-style:normal;font-size:10px;color:var(--dim2)}
+.navfoot{margin-top:auto;font-size:12px;color:var(--dim2);padding:10px}
+
+/* 中：主区 */
+main{display:flex;flex-direction:column;min-width:0;min-height:0;height:100vh}
+header{display:flex;align-items:center;gap:18px;padding:11px 22px;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim2);display:inline-block;margin-right:7px;vertical-align:1px}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px rgba(125,155,118,.55)}
+.dot.warn{background:var(--warn)} .dot.bad{background:var(--bad);box-shadow:0 0 8px rgba(181,86,63,.5)}
+.st{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .st b{color:var(--fg);font-weight:600}
+#clock{margin-left:auto;font:11.5px/1 "Consolas",monospace;color:var(--dim2);white-space:nowrap}
+/* 2026-10-31：人话摘要条——新人不必点开任何房间就知道她现在怎么样 */
+#topline{display:flex;min-width:0;gap:18px;flex-wrap:wrap;align-items:center;padding:8px 22px;
+  border-bottom:1px solid var(--line);background:var(--panel2);font-size:12.5px;color:var(--dim)}
+#topline .tl{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+#topline .tl b{color:var(--fg);font-weight:600}
+#topline .tl.ok b{color:var(--ok)} #topline .tl.bad b{color:var(--bad)} #topline .tl.warn b{color:var(--warn)}
+#topline .tl.bad{color:var(--bad)}
+.body{padding:18px 22px 26px;flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
+  overscroll-behavior:contain;scrollbar-gutter:stable}
+.room{display:none} .room.on{display:block}
+h2{font-size:13px;font-weight:600;color:var(--dim);letter-spacing:1.5px;margin:0 0 12px}
+.card{background:#1a1d20;border:1px solid #2c3238;border-radius:2px;padding:12px 14px;margin-bottom:12px;box-shadow:inset 0 1px 0 rgba(232,226,212,.03),0 10px 24px -18px rgba(0,0,0,.9)}
+.card h3{margin:-12px -14px 10px;padding:9px 14px;font-size:12.5px;font-weight:600;color:#a9b1b8;letter-spacing:.4px;background:#1a1e22;border-bottom:1px solid #2c3238;border-radius:2px 2px 0 0}
+.kv{display:flex;gap:8px;font-size:13px;margin:3px 0}
+.kv i{font-style:normal;color:var(--dim2);min-width:76px}
+.mono{font-family:"Consolas",monospace;font-size:12.5px}
+.bar{height:6px;border-radius:1px;background:#22262a;overflow:hidden;margin:6px 0 2px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,#a0652f,#7fb08a);border-radius:1px}
+.chat{border-top:1px solid var(--line);padding:9px 0}
+.chat:first-child{border-top:0}
+.chat .who{font-size:12px;color:var(--dim2);margin-bottom:4px}
+.line{font-size:13px;margin:2px 0;white-space:pre-wrap;word-break:break-word}
+    .line .ocr{ color:var(--dim,#8b959d); font-size:12px; }
+.line.me{color:#dbae84} .line.them{color:var(--fg)}
+.line .at{color:var(--dim2);font-family:Consolas,monospace;font-size:12px;margin-right:6px}
+.say{border-top:1px solid var(--line);padding:10px 0}
+.say:first-child{border-top:0}
+.say .meta{font-size:12.5px;color:var(--dim2);margin-bottom:3px}
+.say .txt{font-size:13.5px}
+.say .why{font-size:12px;color:var(--dim);border-left:2px solid var(--line2);padding-left:9px;margin-top:6px;white-space:pre-wrap}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.chip{background:#1a1e22;border:1px solid var(--line2);border-radius:1px;padding:4px 11px;font-size:12px;color:var(--dim)}
+.chip b{color:var(--fg)}
+.tag{font-size:12px;padding:1px 7px;border-radius:1px;margin-left:6px}
+.tag.fail{background:rgba(181,86,63,.15);color:var(--bad)}
+.tag.ok{background:rgba(125,155,118,.13);color:var(--ok)}
+.empty{color:var(--dim2);font-size:12.5px;padding:8px 0}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+td{padding:5px 0;border-top:1px solid var(--line);vertical-align:top}
+td.k{color:var(--dim2);width:132px}
+
+/* 右：即时 */
+.rail{border-left:1px solid var(--line);background:var(--panel2);padding:16px;overflow-y:auto;min-height:0}
+.rail h3{font-size:12px;letter-spacing:1.5px;color:var(--dim2);margin:0 0 10px}
+.rail .item{border-left:2px solid var(--line2);padding:0 0 0 10px;margin-bottom:12px}
+.rail .item b{display:block;font-size:12px;color:var(--dim);font-weight:500}
+.rail .item p{margin:3px 0 0;font-size:12.5px;color:var(--fg);white-space:pre-wrap}
+.rail .muted{font-size:12.5px;color:var(--dim2)}
+canvas{width:100%;height:64px;display:block}
+/* 滚动条：可见但不刺眼（2026-10-27 主区可滚动） */
+.body::-webkit-scrollbar,.nav::-webkit-scrollbar,.rail::-webkit-scrollbar{width:10px}
+.body::-webkit-scrollbar-thumb,.nav::-webkit-scrollbar-thumb,.rail::-webkit-scrollbar-thumb{
+  background:#2d3237;border-radius:1px;border:2px solid transparent;background-clip:padding-box}
+.body::-webkit-scrollbar-thumb:hover{background:#3f474e;background-clip:padding-box}
+.body::-webkit-scrollbar-track,.nav::-webkit-scrollbar-track,.rail::-webkit-scrollbar-track{background:transparent}
+
+.vgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px}
+.vcard{border:1px solid #313941;border-radius:2px;padding:11px 13px;background:#1b1e21;box-shadow:inset 0 1px 0 rgba(232,226,212,.025)}
+.vcard h4{margin:0 0 6px;font-size:13px;display:flex;justify-content:space-between;align-items:center}
+.vsaid{background:rgba(125,155,118,.10);border-left:3px solid var(--ok);padding:8px 10px;border-radius:1px;white-space:pre-wrap;margin:6px 0}
+.vsilent{color:var(--dim);font-style:italic}
+#try-models{display:flex;flex-wrap:wrap;gap:6px 12px}
+.kv > label{white-space:nowrap}
+#try-models label{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--dim)}
+#try-models label.on{color:var(--fg)}
+.vmeta{font-size:12px;color:var(--dim);display:flex;gap:10px;flex-wrap:wrap}
+.turnlist{display:flex;flex-direction:column;gap:2px;max-height:280px;overflow:auto}
+.turn{display:flex;gap:9px;align-items:baseline;padding:6px 9px;border-radius:1px;cursor:pointer;font-size:12.5px;border:1px solid transparent}
+.turn:hover{background:#1d2124}
+.turn.on{background:#202327;border-color:var(--line2)}
+.turn .tprev{color:var(--dim2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.muted{color:var(--dim2);font-size:12.5px}
+details.sec{border-top:1px solid var(--line);padding:7px 0}
+details.sec>summary{cursor:pointer;font-size:12.5px;color:var(--dim)}
+.pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;color:var(--fg);background:#141618;border:1px solid var(--line);border-radius:1px;padding:8px;margin-top:6px;max-height:340px;overflow:auto}
+.pre.think{color:#e6c6a8}
+.steprow{border-top:1px solid var(--line);padding:7px 0}
+
+/* ---- 律（P2）：可改的设定 ---- */
+.lawgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px;margin-top:10px}
+/* ---- 人设卡：一张一个矩形，点开看详情/改字 ---- */
+.pcs{display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:12px;margin-top:10px}
+.pcard{position:relative;background:var(--panel2);border:1px solid var(--line);border-radius:2px;
+  padding:12px 13px;cursor:pointer;transition:border-color .12s,transform .12s,background .12s;min-height:96px}
+.pcard:hover{border-color:#4f5861;transform:translateY(-1px);background:#24282c}
+.pcard.active{border-color:#33b0a6;box-shadow:inset 0 0 0 1px rgba(176,141,87,.35)}
+.pcard .pnm{font-size:15px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.pcard .pid{font-size:12px;color:var(--dim);margin-bottom:8px}
+.pcard .pmeta{font-size:12px;color:var(--dim);display:flex;gap:10px;flex-wrap:wrap}
+.pcard .pbud{position:absolute;top:10px;right:11px;font-size:10px;color:#939da7}
+.pcard .pb{display:inline-block;font-size:10px;padding:1px 6px;border-radius:1px;background:#3d444a;color:#e3bf9d}
+.mask{position:fixed;inset:0;background:rgba(8,9,12,.66);backdrop-filter:blur(2px);
+  display:flex;align-items:center;justify-content:center;z-index:80}
+.mask[hidden]{display:none}
+.sheet{width:min(880px,calc(100% - 48px));max-height:86vh;display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line);border-radius:1px;overflow:hidden;
+  box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.sheet-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:13px 16px;border-bottom:1px solid var(--line);background:var(--panel2)}
+.sheet-bd{padding:14px 16px;overflow:auto}
+.sheet-ft{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--line);background:var(--panel2)}
+.pcfld{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.pcfld>label{font-size:12px;color:var(--dim)}
+.pcfld .cnt{font-size:10px;color:#707c88;align-self:flex-end}
+.pcfld input,.pcfld textarea{background:#16191b;border:1px solid var(--line);border-radius:1px;
+  color:var(--fg);padding:7px 9px;font:12px/1.55 inherit;width:100%}
+.pcfld textarea{min-height:64px;resize:vertical}
+.fld{display:flex;flex-direction:column;gap:5px}
+.fld>label{font-size:12px;color:var(--dim)}
+.fld .hint{font-size:12px;color:var(--dim2);line-height:1.4}
+.fld input[type=number],.fld input[type=text],.fld textarea{
+  background:var(--panel2);border:1px solid var(--line2);color:var(--fg);border-radius:1px;
+  padding:7px 9px;font:13px/1.5 inherit;width:100%}
+.fld textarea{min-height:62px;resize:vertical}
+.fld input:focus,.fld textarea:focus{outline:none;border-color:var(--accent)}
+.hours{display:flex;align-items:center;gap:8px}
+.hours input{width:78px}
+.rate{width:100%;border-collapse:collapse}
+.rate td{padding:3px 6px;border-bottom:1px solid var(--line)}
+.rate td:first-child{width:46%}
+.btn{appearance:none;border:1px solid var(--line2);background:#1f2225;color:var(--fg);
+  border-radius:1px;padding:8px 14px;font:13px inherit;cursor:pointer}
+.btn:hover{border-color:#40484f;background:#24282c}
+.btn.primary{background:#32383d;border-color:#4f5860;color:#e8caae}
+.btn.primary:disabled{opacity:.45;cursor:not-allowed}
+.btn.small{padding:4px 9px;font-size:12px;border-radius:1px}
+.preview{border:1px solid var(--line);border-radius:2px;background:var(--panel2);padding:10px 12px;
+  font:12px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;max-height:340px;overflow:auto}
+.preview .add{color:var(--ok)} .preview .del{color:var(--bad)} .preview .hd{color:var(--accent)}
+.audit{display:flex;flex-direction:column}
+.arow{display:flex;gap:10px;align-items:baseline;justify-content:space-between;
+  border-bottom:1px solid var(--line);padding:8px 0}
+.arow .t{font-size:12px;color:var(--dim2);width:118px;flex:none}
+.arow .s{flex:1;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.arow .ops{flex:none}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+.ckdot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--dim2);margin-right:8px;vertical-align:1px}
+.ckdot.ok{background:var(--ok)} .ckdot.warn{background:#e0913f} .ckdot.fail{background:var(--bad)} .ckdot.unknown{background:var(--dim2)}
+.ckrow{padding:10px 0;border-bottom:1px solid var(--line)}
+.ckrow:last-child{border-bottom:0}
+.ckrow .ckt{font-size:13.5px}
+.ckrow .ckl{font-size:12.5px;color:var(--dim);margin-top:2px}
+.ckrow .ckev{font-size:12px;color:var(--dim2);line-height:1.65;white-space:pre-wrap}
+.ckrow .ckh{font-size:12px;color:#e0913f;margin-top:6px}
+.lgrow{font:12px/1.55 ui-monospace,Menlo,Consolas,monospace;word-break:break-all;padding:1px 0}
+.lgt{color:var(--dim,#8b959d)} .lgs{color:#909ba5}
+
+
+/* 2026-10-31：每个组件都是一个矩形卡片（用户要求）——卡片内的键值行做成表格行 */
+.card .kv{display:flex;gap:10px;align-items:baseline;padding:6px 2px;border-bottom:1px dashed #252a2e}
+.card .kv:last-child{border-bottom:0}
+.card .kv i{font-style:normal;color:#8b959d;flex:0 0 auto;min-width:84px}
+.chat,.ckrow,.arow,.lgrow{transition:background .12s}
+.chat:hover,.ckrow:hover,.arow:hover,.lgrow:hover{background:#1f2225}
+
+/* 2026-10-31：卡片不许把内容挤出窗口（长 id / 长行一律折行，不裁字） */
+.card{overflow:hidden}
+.card .kv{flex-wrap:wrap}
+.card .kv span{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.card .mono,.card .empty{overflow-wrap:anywhere}
+.chat{overflow-wrap:anywhere}
+
+/* 2026-10-31：1fr 的 min-content 会把整列撑出窗口（长 id / 顶栏 nowrap）——minmax(0,1fr) 才收得住 */
+.body{min-width:0} main{min-width:0} #topline .tl{min-width:0}
+
+/* 2026-10-31：窄窗口再降一档——右侧 rail 提前收起，卡片永不超过窗口宽 */
+@media (max-width:1380px){
+  #app{grid-template-columns:174px minmax(0,1fr) 0}
+  aside.rail{display:none}
+}
+.card{max-width:100%}
+
+/* 2026-11-01：表情包网格（只读第一版：本地表情库 + 是否已登记） */
+.stgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px}
+.stcell{margin:0;background:#14181c;border:1px solid var(--line);border-radius:2px;padding:6px;
+        display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;min-width:0}
+.stcell:hover{border-color:var(--accent)}
+.stcell{position:relative}
+.sbex{position:absolute;top:3px;right:4px;font-size:9px;line-height:1.3;
+  padding:0 3px;border-radius:2px;background:#353b40;color:#b2b9c0}
+.stcell img{width:56px;height:56px;object-fit:contain}
+.stcell figcaption{font-size:11px;color:var(--dim);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stcell.on{border-color:var(--ok)}
+.stno{font-size:11px;color:var(--bad);padding:18px 4px}
+.stdup{position:absolute;right:3px;top:2px;background:#33b0a6;color:#eef3f0;font-size:10px;line-height:1;padding:2px 4px;border-radius:1px}
+.stcell{position:relative}
+/* ---- 2026-11-01：卡片标题原本有三套写法（h3 / .cardh / .hd），后两套没有样式 ---- */
+.card>.cardh,.card>.hd{margin:-12px -14px 10px;padding:9px 14px;font-size:12.5px;font-weight:600;
+  color:#a9b1b8;letter-spacing:.4px;background:#1a1e22;border-bottom:1px solid #2c3238;
+  border-radius:2px 2px 0 0;display:flex;align-items:center;gap:8px;justify-content:space-between}
+.card>.hd .muted,.card>.cardh .muted{font-weight:400;font-size:11.5px;color:var(--dim2)}
+
+/* ---- 动效只做「出现」和「异常」两件事，不打断读数字 ---- */
+@keyframes roomIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.room.on{animation:roomIn .18s ease-out both}
+@keyframes pulseBad{0%{box-shadow:0 0 0 0 rgba(181,86,63,.5)}
+  70%{box-shadow:0 0 0 6px rgba(181,86,63,0)}
+  100%{box-shadow:0 0 0 0 rgba(181,86,63,0)}}
+.dot.bad{animation:pulseBad 2.2s ease-out infinite}
+.card{transition:border-color .12s ease,box-shadow .12s ease}
+.card:hover{border-color:#363c42}
+.navbtn{transition:background .12s ease,color .12s ease}
+/* 系统开了「减少动效」就全关（放在最后，压住上面的 animation） */
+@media (prefers-reduced-motion:reduce){
+  .room.on,.dot.bad{animation:none}
+  .card,.navbtn,.pcard{transition:none}
+}
+
+/* ---- 账：三张卡竖着排太浪费 974px 的主区宽度，宽屏并两列 ---- */
+@media (min-width:1400px){
+  #room-ledger.on{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;align-items:start}
+  #room-ledger>h2,#room-ledger>#says-card{grid-column:1/-1}
+}
+
+
+/* ===== 2026-11-01 视觉统一（纯 CSS，不动结构） ===== */
+/* 小标签字号：9/10px 在 1480 窗口下读不清，抬到 11px 下限 */
+.navbtn em{font-size:11px;letter-spacing:.5px}
+.stcell .sbex{font-size:10px}
+.pcard .pbud{font-size:11px}
+
+/* 卡片标题：原来 12.5px 比正文（13/13.5）还小，标题不像标题 */
+.card>h3,.card>.cardh,.card>.hd{font-size:13px;color:#b4bbc2;letter-spacing:.3px}
+
+/* 按钮三档：普通 / 主操作 / 危险 —— 「停止全部」以前和「启动全部」一模一样 */
+.btn.danger{border-color:#3a2222;background:#201214;color:#d99a90}
+.btn.danger:hover{border-color:#4a2a26;background:#281618}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* 键盘焦点：全站原本只有 .fld input 一条 focus 规则 */
+:where(button,a,input,select,textarea,summary,[tabindex]):focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
+
+/* 左栏选中：inset 阴影在 9px 圆角上会留一个缺口，换成伪元素竖条 */
+.navbtn{position:relative}
+.navbtn.on{box-shadow:none}
+.navbtn.on::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:2px;
+  border-radius:2px;background:var(--accent)}
+
+/* 输入框装成按钮：6 处 input.btn / select.btn，用属性选择器纠正 */
+input.btn,select.btn{background:#14181c;border-color:var(--line);cursor:text}
+input.btn:hover,select.btn:hover{background:#14181c;border-color:var(--line2)}
+input.btn:focus,select.btn:focus{outline:none;border-color:var(--accent)}
+select.btn{cursor:pointer}
+input.btn::placeholder{color:var(--dim2)}
+
+/* 滚动条：原来只管 .body/.nav/.rail，列表内部还是系统灰方块 */
+.turnlist::-webkit-scrollbar,#lg-list::-webkit-scrollbar,.pre::-webkit-scrollbar,
+.sheet-bd::-webkit-scrollbar{width:10px;height:10px}
+.turnlist::-webkit-scrollbar-thumb,#lg-list::-webkit-scrollbar-thumb,.pre::-webkit-scrollbar-thumb,
+.sheet-bd::-webkit-scrollbar-thumb{background:#2d3237;border-radius:1px;
+  border:2px solid transparent;background-clip:padding-box}
+.turnlist::-webkit-scrollbar-thumb:hover,#lg-list::-webkit-scrollbar-thumb:hover,
+.pre::-webkit-scrollbar-thumb:hover{background:#3f474e;background-clip:padding-box}
+.turnlist::-webkit-scrollbar-track,#lg-list::-webkit-scrollbar-track,
+.pre::-webkit-scrollbar-track,.sheet-bd::-webkit-scrollbar-track{background:transparent}
+
+
+/* ===== 2026-11-01 按钮布局：高度统一 + 说明下沉 + 危险靠右 ===== */
+/* 同组按钮原来 34 / 26 两种高度，并排时基线不齐 */
+.btn{min-height:34px}
+.btn.small{min-height:30px}
+
+/* 按钮行里的说明文字独占一行，不再和按钮抢宽度 */
+.btnrow > .muted{flex:1 1 100%;margin-top:2px;line-height:1.6}
+
+/* 危险操作推到最右，和"启动/重启"拉开距离，避免误点 */
+.row > .btn.danger{margin-left:auto}
+
+/* 房间标题：原来 13px，和卡片标题一样大，看不出"这是一页的标题" */
+h2{font-size:15px;color:#ccd1d6;letter-spacing:1px;margin:0 0 14px;font-weight:600}
+
+
+/* ===== 高雅主题 · 细节层（2026-11-01） =====
+   暖墨底 + 象牙字 + 暗金强调；去霓虹、去光晕、去大圆角。 */
+.brand{font-family:"Songti SC","SimSun","Georgia",serif;font-weight:600;letter-spacing:3px}
+.brand span{letter-spacing:4px;font-size:11px}
+h2{font-family:"Songti SC","SimSun","Georgia",serif;font-size:16px;font-weight:600;
+   letter-spacing:2px;color:#d3dbe1;margin:0 0 16px}
+/* 卡片：没有阴影，只有一根极淡的描边 —— 靠留白分层，不靠浮起来 */
+.card{box-shadow:none;border-color:#232a30}
+.card>h3,.card>.cardh,.card>.hd{letter-spacing:1.2px;background:#12161a;border-bottom:1px solid #232a30}
+/* 状态点改成小方点：仪器指示灯，不是手机通知圆点 */
+.dot{border-radius:1px;width:7px;height:7px}
+.dot.ok{box-shadow:none}
+.dot.bad{box-shadow:none}
+/* chip 去掉色块，只留细边 */
+.chip{background:transparent;border-color:#2a3138}
+.chip b{color:#e7eae8;font-weight:600}
+/* 标签同理 */
+.tag{background:transparent;border:1px solid currentColor}
+/* 分隔线统一成暖灰，比原来的蓝灰柔和 */
+td,.chat,.say,.ckrow,.arow{border-color:#232a30}
+/* 数字统一等宽，读起来像仪表盘 */
+.mono,.st b,.lgrow{font-variant-numeric:tabular-nums}
+
+/* ===== 2026-11-01 信息架构：分组导航 + 概览栅格 ===== */
+.navgrp{font-size:10.5px;letter-spacing:2.5px;color:#5f6b74;margin:16px 10px 4px;font-weight:600}
+.navgrp:first-of-type{margin-top:2px}
+.ovgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px}
+.ovgrid>.card{margin-bottom:0}
+.ovrow{display:flex;align-items:baseline;gap:8px;padding:7px 0;border-bottom:1px dashed #232a30}
+.ovrow:last-child{border-bottom:0}
+.ovrow i{font-style:normal;color:#8b959d;flex:0 0 68px;font-size:12.5px}
+.ovrow b{font-weight:600;color:#e7eae8;min-width:0;overflow-wrap:anywhere}
+.ovrow .muted{margin-left:auto;font-size:12px;white-space:nowrap}
+.ovbig{font:600 30px/1.05 "Consolas",monospace;color:#e7eae8;font-variant-numeric:tabular-nums}
+.ovlab{font-size:11px;letter-spacing:1.2px;color:#8b959d;margin-top:4px}
+.ovtodo{display:flex;gap:22px;flex-wrap:wrap}
+.rail h3:not(:first-child){margin-top:22px}
+
+/* ===== 莱茵生命 · 细节层 =====
+   莱茵证件四色：白 C 文职 / 橙 R 研究 / 青绿 M 医疗 / 红 S 安保。
+   这里青绿=强调，橙=提醒，红=危险；其余全部压回高灰度中性。 */
+.navgrp{color:#5f6b74;letter-spacing:2.5px}
+/* 左栏选中：一根青绿竖条 + 极淡底，像设备面板上的在岗指示 */
+.navbtn.on::before{background:#33b0a6;width:2px;border-radius:0}
+.navbtn.on{background:#1a2126}
+/* 分组之间用小方块做节标，而不是圆点 */
+.dot{border-radius:0}
+/* 卡片标题左侧一道青绿短线（不是整条背景，克制） */
+.card>h3,.card>.cardh,.card>.hd{border-left:2px solid #33b0a6;border-bottom-color:#232a30;
+  letter-spacing:1.4px;background:#12161a}
+.card{border-color:#232a30}
+/* chip 去掉色块，只留极细边；数字用青绿 */
+.chip{background:transparent;border-color:#2a3138;border-radius:1px}
+.chip b{color:#33b0a6}
+/* 主按钮：青绿底、深字，像仪器上唯一那个"执行"键 */
+.btn.primary{background:#123c3a;border-color:#2b7d77;color:#b7ece6}
+.btn.primary:hover{background:#174a47;border-color:#38a099}
+/* 危险：安保红 */
+.btn.danger{background:#2a1717;border-color:#6b3630;color:#e8b0a8}
+.btn.danger:hover{background:#35201f;border-color:#8a4a42}
+/* 数字等宽 + 轻微字距，读起来像仪表读数 */
+.ovbig,.mono{font-variant-numeric:tabular-nums;letter-spacing:.5px}
+/* 进度条：青绿双色，不要橙→绿的混搭 */
+.bar>i{background:linear-gradient(90deg,#1f7a74,#5fd0c6)}
+</style></head>
+<body>
+<div id="app">
+  <aside class="nav" role="navigation" aria-label="房间导航">
+    <div class="brand"><span id="brand-name">鲸鲸</span><span>SHE · CONSOLE</span></div>
+    <div class="navgrp">她</div>
+    <button class="navbtn on" data-room="overview">概览 <em>Overview</em></button>
+    <button class="navbtn" data-room="eyes">视界 <em>Eyes</em></button>
+    <button class="navbtn" data-room="vitals">心 <em>Vitals</em></button>
+    <button class="navbtn" data-room="mind">思 <em>Mind</em></button>
+    <button class="navbtn" data-room="voice">口 <em>Voice</em></button>
+    <div class="navgrp">记录</div>
+    <button class="navbtn" data-room="ledger">账 <em>Ledger</em></button>
+    <button class="navbtn" data-room="notebook">本 <em>Notebook</em></button>
+    <button class="navbtn" data-room="logs">志 <em>Logs</em></button>
+    <div class="navgrp">运维</div>
+    <button class="navbtn" data-room="config">律 <em>Config</em></button>
+    <button class="navbtn" data-room="check">检 <em>Checkup</em></button>
+    <button class="navbtn" data-room="try">试 <em>Fitting</em></button>
+    <div class="navfoot">P4 · 记录层 + 可改设定 + 试衣间 + 体检<br>（docs/律-P2.md、docs/试衣间-P3.md、docs/体检-P4.md）<br>每 2 秒刷新</div>
+  </aside>
+
+  <main>
+    <header>
+      <div class="st"><span id="d-engine" class="dot"></span>引擎 <b id="t-engine">—</b></div>
+      <div class="st"><span id="d-main" class="dot"></span>主程序 <b id="t-main">—</b></div>
+      <div class="st"><span id="d-world" class="dot"></span>世界 <b id="t-world">—</b></div>
+      <div id="err" role="status" aria-live="polite" style="font-size:12px;color:var(--bad);max-width:420px;overflow:hidden;text-overflow:ellipsis"></div>
+      <div id="clock">—</div>
+    </header>
+    <div id="topline" role="status" aria-live="polite" title="人话版：她在不在、最后说过话是什么时候、有没有积压的消息、世界同步差多少">
+      <span id="tl-run" class="tl">正在读取…</span>
+      <span id="tl-say" class="tl"></span>
+      <span id="tl-queue" class="tl"></span>
+      <span id="tl-world" class="tl"></span>
+    </div>
+    <div class="body">
+      <section class="room on" id="room-overview">
+        <h2>概览 · 她现在怎么样</h2>
+        <div class="ovgrid">
+          <div class="card"><h3>生命线</h3><div id="ov-vital"></div></div>
+          <div class="card"><h3>她此刻</h3><div id="ov-pulse"></div></div>
+          <div class="card"><h3>待处理</h3><div id="ov-todo"></div></div>
+          <div class="card"><h3>被她自己挡下</h3><div id="ov-blocked"></div></div>
+          <div class="card"><h3>最近会话</h3><div id="ov-chats"></div></div>
+        </div>
+      </section>
+
+      <section class="room" id="room-eyes">
+        <h2>视界 · 她这一拍看到的世界</h2>
+        <div class="card" id="world-card"></div>
+        <div class="card" id="chats-card"></div>
+      </section>
+
+      <section class="room" id="room-notebook">
+        <h2>本 · 她自己写的小本本</h2>
+        <div class="card"><h3>小本本（每天凌晨 3 点她自己写）</h3><div id="nb-days"></div></div>
+        <div class="card"><h3>常驻板（她记着的约定 / 忌讳 / 事实）</h3><div id="nb-memo"></div></div>
+        <div class="card" id="nb-note" style="font-size:12px;opacity:.6"></div>
+      </section>
+
+      <section class="room" id="room-logs">
+        <h2>志 · 她这一天的所有动静（一条时间线）</h2>
+        <div class="card">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <input id="lg-filter" placeholder="过滤关键字（如 wx_ / qq_ / error）" oninput="lgDraw()"
+                   style="flex:1;background:#14181c;border:1px solid #2c3238;border-radius:1px;color:#e3e9e6;padding:6px 9px;font-size:12px">
+            <select id="lg-level" onchange="lgDraw()" title="只看这个级别及以上"
+                    style="background:#14181c;border:1px solid #2c3238;border-radius:1px;color:#e3e9e6;padding:6px 6px;font-size:12px">
+              <option value="all">全部级别</option><option value="warning">warning 以上</option><option value="error">只看 error</option>
+            </select>
+            <label class="muted" style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap"
+                   title="边看边刷新时别把画面拉回最底下">
+              <input type="checkbox" id="lg-pause" onchange="lgDraw()"> 暂停跟随</label>
+            <button class="btn small" onclick="lgReload()">刷新</button>
+          </div>
+          <div id="lg-note" style="font-size:12px;opacity:.6;margin-bottom:6px"></div>
+          <div id="lg-list" style="max-height:58vh;overflow:auto;background:#101213;border-radius:1px;padding:10px"></div>
+        </div>
+      </section>
+
+
+      <section class="room" id="room-vitals">
+        <h2>心 · 体征</h2>
+      <div class="card" id="sayrate-card">
+        <div class="cardh">送达率 · 今天的开口<span id="sayrate-at" style="font-size:12px;color:#8b959d"></span></div>
+        <div id="sayrate-body" style="font-size:13px;color:#d0d5d9">读账中…</div>
+      </div>
+
+        <div class="card" id="vitals-card"></div>
+        <div class="card"><h3>最近 8 分钟（想说话 / 清醒度）</h3><canvas id="spark" width="600" height="64"></canvas></div>
+        <div class="card" id="stance-card"></div>
+      </section>
+
+      <section class="room" id="room-mind">
+        <h2>思 · 她想了什么</h2>
+        <div class="card">
+          <h3>最近几拍 <span class="muted">（点一行看那一拍的完整现场）</span></h3>
+          <div id="mind-turns" class="turnlist"><div class="empty">还没有记录</div></div>
+        </div>
+        <div class="card" id="mind-card"></div>
+      </section>
+
+      <section class="room" id="room-voice">
+        <h2>口 · 说出去的那一段</h2>
+        <div class="card" id="voice-pipe"></div>
+        <div class="card" id="voice-card"></div>
+        <div class="card" id="pool-card" style="margin-bottom:12px">
+        <div class="hd">池子 · 她现在能发的（<span id="pool-n">…</span> 张）</div>
+        <div class="bd">
+          <div class="muted" id="pool-sub" style="margin-bottom:8px">只收有证据的：E3=我们自己的发送回执对得上，E4=人工登记。</div>
+          <div class="stgrid" id="pool-grid"></div>
+          <div id="pool-detail" class="muted" style="margin-top:8px"></div>
+        </div>
+      </div>
+      <div class="card" id="sticker-card">
+          <h3 style="margin:0 0 6px;font-size:13px">本地表情库 · 全部缓存</h3>
+          <div class="muted" id="sticker-sub" style="font-size:12.5px">正在读…</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+            <input id="stk-q" placeholder="搜图意 / 情绪 / md5" oninput="stkSearch(this.value)"
+                   style="flex:1;min-width:160px;background:#14181c;border:1px solid #2c3238;border-radius:1px;color:#e3e9e6;padding:6px 9px;font-size:12px">
+            <button class="btn small" onclick="stkPage(-1)">上一页</button>
+            <span class="muted" id="stk-page" style="font-size:12px;white-space:nowrap">—</span>
+            <button class="btn small" onclick="stkPage(1)">下一页</button>
+          </div>
+          <div id="sticker-grid" class="stgrid" style="margin-top:10px"></div>
+          <div class="muted" id="sticker-detail" style="font-size:12px;margin-top:10px"></div>
+          <div class="muted" style="font-size:11.5px;margin-top:8px">
+            绿框 = 已经登记进她表情库（有名字、知道什么时候用）；灰框 = 她发过但还没登记。
+            现在这一版<strong>只看不写</strong>。
+          </div>
+        </div>
+      </section>
+
+      <section class="room" id="room-check">
+        <h2>检 · 体检（她自己检查「我在对的世界里说话吗」）</h2>
+        <div class="card" id="check-banner">
+          <div style="font-size:14px"><span id="check-dot" class="ckdot"></span><b id="check-head">还没体检</b></div>
+          <div class="muted" id="check-sub" style="margin-top:6px;font-size:12.5px">点下面「重新体检」跑一次；约 1–3 秒。</div>
+          <div id="check-counts" class="chips" style="margin-top:10px"></div>
+          <div style="margin-top:10px"><button class="btn primary" id="check-run">重新体检</button>
+            <button class="btn small" id="check-dump" title="把现场（心跳/日志尾巴/体检/队列/进程）打包成一个 json，方便发给别人看">导出诊断包</button>
+            <span class="muted" id="check-at" style="margin-left:10px;font-size:12px"></span></div>
+        </div>
+        <div id="check-list" class="card"></div>
+        <div class="card">
+          <h3 style="margin:0 0 8px;font-size:13px">这份体检在看什么</h3>
+          <div class="muted" style="font-size:12.5px;line-height:1.7">
+            11 项：引擎活着 / 主程序心跳 / <b>代码比进程新</b> / <b>世界同步差</b> / 出口回执被证实 / 安静时段闭嘴 / 自发节奏不催人 / 承诺有没有销账 / 记录层在写且没出错 / 告警日志量 / 磁盘余量。<br>
+            红黄绿只是提示，不是判决 —— 每一条都给出证据原文和一句「怎么修」。
+          </div>
+        </div>
+      </section>
+
+      <section class="room" id="room-ledger">
+        <h2>账 · 今天</h2>
+        <div class="card" id="stats-card"></div>
+        <div class="card" id="promise-card"></div>
+        <div class="card" id="says-card"></div>
+      </section>
+
+      <section class="room" id="room-config">
+        <h2>律 · 可改的设定</h2>
+
+        <div class="card" id="sp-card">
+          <div class="hd">说话白名单 <span class="muted">平台 → 账号 → 联系人/群（不在名单里的会话，她不开口）</span></div>
+          <div class="muted" id="sp-note" style="font-size:12px;margin:2px 0 6px">没列出的会话不会回话 —— 要她在某个群或某个人那里说话，先把那个会话勾进来（勾上＝可以回话；再点一次那个名字＝允许她主动找你）。</div>
+          <div id="sp-msg" class="muted" style="font-size:12px;margin:2px 0 6px"></div>
+          <div class="row" style="gap:8px;margin:2px 0 6px">
+            <input id="sp-q" placeholder="搜名字 / 微信号（留空＝只看已勾选和聊过的）" oninput="spDraw()"
+                   style="flex:1;min-width:200px;font-size:12px;background:#13171b;color:#e6ece9;border:1px solid rgba(255,255,255,.12);border-radius:1px;padding:4px 8px">
+          </div>
+          <div id="sp-body"></div>
+          <div class="muted" id="sp-found" style="font-size:12px;margin:8px 0 2px"></div>
+          <div class="muted" id="sp-blocked" style="font-size:12px;margin:8px 0 2px"></div>
+          <div class="muted" id="sp-days" style="font-size:12px;margin:2px 0 2px"></div>
+          <div class="row btnrow" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+            <button class="btn small" onclick="spFind()" title="不在上面列表里的人/群也搜得到（翻所有账号的通讯录与聊天记录）">搜全部会话</button>
+            <button class="btn small" onclick="spSeed()">把近 30 天有往来的都加进来</button>
+            <button class="btn small" onclick="spSave()">保存</button>
+            <span class="muted" style="font-size:12px">保存前会自动备份 data/persona/speak_policy.json；改完下一拍生效，不用重启</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3 style="margin:0">主机 · 主程序与 AI 引擎</h3>
+            <span class="muted" id="host-msg" role="status" aria-live="polite">读取中…</span>
+          </div>
+          <div class="row" id="host-lights" style="gap:18px;flex-wrap:wrap;margin-top:8px"></div>
+          <div class="row btnrow" style="margin-top:10px">
+            <button class="btn primary" id="host-start">启动全部</button>
+            <button class="btn" id="host-restart">重启全部</button>
+            <button class="btn danger" id="host-stop">停止全部</button>
+            <button class="btn" id="host-restart-engine" onclick="hostRestartEngine()">重启引擎</button>
+            <span class="muted">启动＝把主程序和 AI 引擎拉起来；停止＝全部关掉（她会离线）；重启＝先关再开；重启引擎＝只换 AI 引擎，面板和 QQ 通道不动。都和双击「鲸鲸」用的是同一套开关。</span>
+          </div>
+        </div>
+                <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3 style="margin:0">通道 · 这个号此刻通不通 <span class="muted" style="font-weight:400">（登记管"读哪个库"，这里管"能不能收发"）</span></h3>
+            <span class="muted" id="ch-msg" role="status" aria-live="polite">读取中…</span>
+          </div>
+          <div id="ch-list" style="margin-top:8px"><div class="muted">—</div></div>
+          <div id="ch-qrwrap" style="display:none;margin-top:10px">
+            <div class="muted" style="font-size:12px;margin-bottom:6px">手机 QQ 扫这个（NapCat 自己生成的登录码，过期会自动换新的）</div>
+            <img id="ch-qr" alt="QQ 登录二维码" style="width:150px;height:150px;border-radius:1px;background:#eef3f0;padding:6px">
+            <div id="ch-qrnote" class="muted" style="font-size:12px;margin-top:6px">等待扫码…</div>
+          </div>
+          <div class="row btnrow" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+            <button class="btn small" onclick="chAct('napcat_start')">起 NapCat</button>
+            <button class="btn small" onclick="chAct('napcat_qr')">打开 WebUI（调试）</button>
+            <button class="btn small" onclick="chAct('wechat_key_hook')">重抓微信 key</button>
+            <span class="muted" style="font-size:12px">扫码要手机确认，天生自动化不了 —— 这里只负责把进程拉起来、把入口摆到你面前</span>
+          </div>
+        </div>
+<div class="card">
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px">外貌 · 我的样子
+              <span class="muted" style="font-weight:400;font-size:12px">（她认得自己：这段会进 prompt 的 [我的样子]）</span></div>
+            <div class="muted" id="lk-msg" style="font-size:12px;min-height:16px">读一下…</div>
+            <div id="lk-gal" style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0"></div>
+            <div class="muted" style="font-size:12px;margin-bottom:4px">她读到的那段（canon.txt，≤400 字）</div>
+            <textarea id="lk-canon" rows="7" spellcheck="false" style="width:100%;box-sizing:border-box;font-size:12px;line-height:1.55;background:rgba(255,255,255,.05);color:inherit;border:1px solid rgba(255,255,255,.14);padding:8px;border-radius:1px;overflow-wrap:anywhere;resize:vertical;font-family:inherit"></textarea>
+            <div class="row btnrow" style="margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
+              <input type="file" id="lk-file" accept="image/*" multiple style="display:none" onchange="looksFileChange(this)">
+              <button class="btn small primary" onclick="looksPick()">选图片</button>
+              <button class="btn small" onclick="looksSave()">保存这段</button>
+              <button class="btn small" onclick="looksGen()">让她重新认一遍</button>
+              <span class="muted" style="font-size:12px">选完图会自动上传 → 读图 → 重写那段话，你不用管</span>
+            </div>
+          </div>
+  
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3 style="margin:0">账号 · 平台登记 <span class="muted" style="font-weight:400">（可增删改 · 写前预演+备份整表）</span></h3>
+            <span class="muted" id="acct-msg">读取中…</span>
+          </div>
+          <div id="acct-list" style="margin-top:8px"><div class="muted">—</div></div>
+          <div id="acct-banner" class="muted" style="display:none;margin-top:8px"></div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
+            <div class="muted" style="margin-bottom:6px">新增 / 修改（写入前会预演，确认后才写；每次写都先备份整张登记表到 data/console/accounts_backup/；改完要重启才生效）</div>
+            <div class="row btnrow" style="gap:8px;flex-wrap:wrap">
+              <select id="acct-platform" class="btn small">
+                <option value="wechat">微信</option>
+                <option value="qq">QQ</option>
+              </select>
+              <input id="acct-id" class="btn small" placeholder="账号 ID（微信 wxid_… / QQ 数字）" style="min-width:250px">
+              <input id="acct-dir" class="btn small" placeholder="数据目录（留空 = data/platforms/平台/账号ID）" style="min-width:300px">
+              <select id="acct-role" class="btn small">
+                <option value="yinyue" id="acct-role-self">AI 自己</option>
+                <option value="owner">她服务的人</option>
+                <option value="guest">其他人</option>
+              </select>
+              <button class="btn small" id="acct-probe">探测</button>
+              <button class="btn small" id="acct-save">写入</button>
+            </div>
+            <div class="muted" id="acct-form-msg" style="margin-top:6px"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row" style="justify-content:space-between">
+            <h3 style="margin:0">她的作息与心跳</h3>
+            <span class="muted" id="law-status">连接执行器…</span>
+          </div>
+          <div class="lawgrid" id="law-runtime"></div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 4px">渠道约定 · D1
+            <span class="muted" style="font-weight:400">（她读到的「怎么开口、要不要 @、能不能发语音、隔多久」；引擎下一拍就读新的，不用重启）</span></h3>
+          <div class="lawgrid" id="law-channel"></div>
+          <details class="sec" style="margin-top:12px"><summary class="muted" style="font-size:12px">她此刻读到的原文（点开看四个平台各一份；平时不用展开）</summary>
+          <pre id="law-channel-text" style="white-space:pre-wrap;margin-top:6px;font-size:12px;line-height:1.7;background:#101214;border:1px solid #25292d;border-radius:2px;padding:10px;color:#d7dbde">—</pre>
+          </details>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 4px">人格卡 · <span id="law-card">鲸鲸</span>
+            <span class="muted" style="font-weight:400">（引擎下一拍就会重读，不用重启）</span></h3>
+          <div class="lawgrid" id="law-persona" style="grid-template-columns:1fr"></div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 4px">切卡 · 她现在是谁
+            <span class="muted" style="font-weight:400">（点一张卡看详情、改字；改完她下一拍就按新写法说话）</span></h3>
+          <div class="pcs" id="card-grid"></div>
+          <div class="row btnrow" style="gap:8px;flex-wrap:wrap;margin-top:12px">
+            <input class="btn" id="card-new-name" placeholder="新卡名字（≤20 字）" style="min-width:170px"/>
+            <input class="btn" id="card-new-from" placeholder="底稿（留空 = 当前生效卡）" style="min-width:200px"/>
+            <button class="btn" id="card-new">另存为新卡</button>
+            <span class="muted" id="card-msg"></span>
+          </div>
+        </div>
+        <div class="mask" id="card-mask" role="dialog" aria-modal="true" aria-labelledby="pc-title" hidden>
+          <div class="sheet">
+            <div class="sheet-hd">
+              <div><b id="pc-title">卡</b> <span class="muted" id="pc-sub"></span></div>
+              <button class="btn" id="pc-x">关闭</button>
+            </div>
+            <div class="sheet-bd" id="pc-body"></div>
+            <div class="sheet-ft">
+              <button class="btn" id="pc-save">保存修改（先备份）</button>
+              <button class="btn" id="pc-switch">切到这张卡</button>
+              <button class="btn" id="pc-as">另存为新卡</button>
+              <span class="muted" id="pc-msg"></span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 8px">声音 · 外观</h3>
+          <div class="row" style="gap:12px;flex-wrap:wrap">
+            <span class="muted">声音包</span>
+            <input class="btn" id="voice-slug" placeholder="voice slug（留空 = 默认音）" style="min-width:170px"/>
+            <span class="muted">外观包</span>
+            <input class="btn" id="looks-slug" placeholder="looks slug" style="min-width:150px"/>
+            <button class="btn" id="voice-save">写入卡</button>
+            <button class="btn primary" id="voice-play">试听</button>
+          </div>
+          <div class="muted" id="voice-line" style="margin-top:8px"></div>
+          <audio id="voice-audio" controls style="margin-top:10px;width:100%;display:none"></audio>
+        </div>
+        <div class="card">
+          <div class="row btnrow">
+            <button class="btn" id="law-preview">预览改动</button>
+            <button class="btn primary" id="law-commit" disabled>写入（先备份、再审计）</button>
+            <button class="btn" id="law-restart">重启引擎</button>
+            <span class="muted" id="law-msg" role="status" aria-live="polite"></span>
+            <button class="btn small" id="law-undo" hidden onclick="lawUndoLast()">撤销这次</button>
+          </div>
+          <div id="law-diff-wrap" style="margin-top:12px" hidden>
+            <div class="muted" style="margin-bottom:6px">这就是要写进磁盘的差异（绿 = 新增，红 = 删掉）</div>
+            <div class="preview" id="law-diff"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 8px">最近的改动 <span class="muted" style="font-weight:400">（每条都能回滚）</span></h3>
+          <div class="audit" id="law-audit"><div class="muted">—</div></div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 6px">这个房间能改什么、不能改什么</h3>
+          <div class="muted" style="font-size:12.5px;line-height:1.7">
+            能改：安静时段、轮询/看护间隔，以及人设卡（一整块自由文本，排版随你）。<br>
+            每次写入都走同一条路：<span class="mono">校验 → 算 diff → 备份到 backups/law/ → 原子写 → 审计 data/console/audit-*.jsonl</span>，可回滚。<br>
+            能改的只有上面这些设定：数据库、代码、日志都不会被这里碰；这里没有 SQL，也不能写任意文件。
+          </div>
+        </div>
+      </section>
+      <section class="room" id="room-try">
+        <h2>试 · 试衣间（拿真的一拍重跑，不发出去）</h2>
+        <div class="card">
+          <div class="muted" style="margin-bottom:8px">
+            选一拍 → 挑温度 / 加一句嘱咐 → 跑。这里<b>绝不发送、不记账、不改她的状态</b>；只把「她本来会说什么」摆出来给你比。
+          </div>
+          <div class="kv"><label>哪一拍</label><select id="try-turn" style="min-width:420px"></select></div>
+          <div class="kv"><label>温度</label>
+            <span id="try-temps">
+              <label class="muted"><input type="checkbox" value="0.1" checked> 0.1（原档）</label>
+              <label class="muted"><input type="checkbox" value="0.7"> 0.7</label>
+              <label class="muted"><input type="checkbox" value="1.0"> 1.0</label>
+            </span>
+            <label class="muted" style="margin-left:10px"><input type="checkbox" id="try-repeat"> 每档跑两遍（看她这次稳不稳）</label>
+          </div>
+          <div class="kv"><label>换模型</label><span id="try-models" class="chips"><span class="muted">读取候选…</span></span></div>
+          <div class="kv"><label>加一句嘱咐</label><input id="try-addendum" placeholder="留空 = 原样重跑；例如：再短一点，别问问题" style="flex:1"></div>
+          <div class="row btnrow" style="margin-top:10px">
+            <button class="btn" id="try-run">试衣（重跑）</button>
+            <span class="muted" id="try-status">—</span>
+          </div>
+        </div>
+        <div id="try-results"></div>
+      </section>
+    </div>
+
+  </main>
+
+  <aside class="rail">
+    <h3>此刻</h3>
+    <div id="rail-now"></div>
+    <h3>她刚说的</h3>
+    <div id="rail-says"><div class="muted">—</div></div>
+    <h3>待处理</h3>
+    <div id="rail-todo"></div>
+  </aside>
+</div>
+
+<script>
+const $ = (s)=>document.querySelector(s);
+const $$ = (s)=>Array.from(document.querySelectorAll(s));
+const esc = (s)=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const tidy = (s)=>String(s==null?"":s)
+  .replace(/\[([^\[\]=:]{1,10})[:=][^\]]*\]/g, "[$1]")
+  .replace(/\s+$/, "");
+let STATE=null;
+let MTURN=null;
+/* 同源（http://127.0.0.1:39872/app）时为空；用 file:// 直接打开时退回本机端口 */
+const HTTP = (location.protocol === "file:") ? "http://127.0.0.1:39872" : "";
+const API = HTTP;
+
+let _ROOM_LOCK=false;
+function roomGo(name){ const b=document.querySelector('.navbtn[data-room="'+name+'"]'); if(!b) return false; b.onclick(); return true; }
+document.querySelectorAll(".navbtn").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".navbtn").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".room").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); $("#room-"+b.dataset.room).classList.add("on");
+  // 换房间回到顶部：否则从长房间切过来会停在上一个房间的滚动位置（2026-10-27）
+  const bd = document.querySelector(".body"); if(bd) bd.scrollTop = 0;
+  // 2026-11-01：记住你在哪一页（刷新、重开窗口都回原位），并写进地址栏
+  try{ localStorage.setItem("panel.room", b.dataset.room); }catch(e){}
+  _ROOM_LOCK=true; try{ location.hash = "r:"+b.dataset.room; }catch(e){} _ROOM_LOCK=false;
+});
+function _roomFromHash(){ return String(location.hash||"").replace(/^#/,"").replace(/^r:/,""); }
+(function(){
+  let want = _roomFromHash();
+  if(!want){ try{ want = localStorage.getItem("panel.room")||""; }catch(e){} }
+  if(want && document.querySelector('.navbtn[data-room="'+want+'"]')) roomGo(want);
+})();
+window.addEventListener("hashchange", ()=>{ if(_ROOM_LOCK) return; const w=_roomFromHash(); if(w) roomGo(w); });
+
+// 2026-11-01：时间戳说人话。数据库里是 2026-10-31 21:48:54.000000，直接显示等于把微秒糊在主人脸上。
+function humanTs(ts){
+  if(!ts && ts!==0) return "—";
+  let t = String(ts).trim().replace("T"," ");
+  t = t.replace(/\.\d+$/, "");
+  const m = t.match(/^(\d{4})-(\d{2})-(\d{2})[ ]?(\d{2}:\d{2})(:\d{2})?$/);
+  if(!m) return String(ts);
+  const N=new Date();
+  const same = (+m[1]===N.getFullYear()) && (+m[2]===N.getMonth()+1) && (+m[3]===N.getDate());
+  return same ? (m[4]+(m[5]||"")) : (m[2]+"-"+m[3]+" "+m[4]);
+}
+function fmtAge(s){
+  if(s==null) return "—";
+  const n=Math.round(s);
+  if(n<60) return n+" 秒前";
+  if(n<3600) return Math.round(n/60)+" 分钟前";
+  return (n/3600).toFixed(1)+" 小时前";
+}
+function fmtDur(s){
+  if(s==null) return "—";
+  const n=Math.round(s);
+  if(n<60) return n+"s";
+  const m=Math.floor(n/60), h=Math.floor(m/60);
+  if(h>0) return h+"h"+(m%60)+"m";
+  return m+"m"+(n%60)+"s";
+}
+function setDot(id,state){
+  const el=$(id); el.className="dot "+(state==="ok"?"ok":state==="stale"?"warn":"bad");
+}
+
+
+/* 2026-11-01 表情包（只读）：数据来自「全部缓存表情」
+   —— 不是"见过"：world.db 里 is_self=1 的 sticker 行，抠 [表情包:md5]，
+   图片去 data/emoji_cache/<md5>.dat 或 data/image_cache/<md5>.png 找。
+   是否已登记：拿 templates/<id>.* 的内容 md5 与池子里的 md5 对上（后端算好）。 */
+let STICKERS=null, STICKERS_LOADING=false, STICKER_SEL=null, _poolFeels=[];
+async function loadStickers(force){
+  if(STICKERS_LOADING) return;
+  if(STICKERS && STICKERS.ok && !force) return;   // 上次读失败了要允许自动重试
+  STICKERS_LOADING=true;
+  try{
+    const r = await lawFetch("/cmd", {cmd:"sticker_pool", args:{}}, 25000);
+    STICKERS = (r && r.ok) ? r : {ok:false, error:(r&&r.error)||"读不到"};
+    if(r && r.ok && r.feels && r.feels.length) _poolFeels = r.feels;
+  }catch(e){ STICKERS={ok:false, error:String(e&&e.message||e)}; }
+  STICKERS_LOADING=false;
+  renderStickers();
+}
+// 2026-11-01：一次渲染 887 张缩略图（每张内联 data URI）首屏太重 —— 改成一页 60 张 + 搜图意/情绪/md5
+let STK_PAGE=0, STK_PER=60, STK_Q="";
+const _stkRows = function(){
+  const all=(STICKERS&&STICKERS.rows)||[]; const q=String(STK_Q||"").trim().toLowerCase();
+  if(!q) return all;
+  return all.filter(function(it){
+    const hay=((it.registered_key||"")+" "+(it.registered_label||"")+" "+(it.md5||"")).toLowerCase();
+    return hay.indexOf(q)>=0;
+  });
+};
+function stkSearch(v){ STK_Q=String(v||""); STK_PAGE=0; renderStickers(); }
+function stkPage(d){
+  const rows=_stkRows(), pages=Math.max(1, Math.ceil(rows.length/(STK_PER|0)));
+  STK_PAGE=Math.min(pages-1, Math.max(0, (STK_PAGE|0)+d)); renderStickers();
+  const g=document.getElementById("sticker-grid"); if(g&&g.scrollIntoView) g.scrollIntoView({block:"nearest"});
+}
+function renderStickers(){
+  const g=$("#sticker-grid"), sub=$("#sticker-sub");
+  if(!g) return;
+  if(!STICKERS){ g.innerHTML='<span class="muted">正在读…</span>'; return; }
+  if(!STICKERS.ok){ g.innerHTML='<span class="muted">读不到：'+esc(STICKERS.error||"")+'</span>'; if(sub) sub.textContent="读不到"; return; }
+  const rows=_stkRows();
+  const per=STK_PER|0, pages=Math.max(1, Math.ceil(rows.length/per));
+  if(STK_PAGE>pages-1) STK_PAGE=pages-1; if(STK_PAGE<0) STK_PAGE=0;
+  const pageRows=rows.slice(STK_PAGE*per, STK_PAGE*per+per);
+  const pg=$("#stk-page"); if(pg) pg.textContent = rows.length ? (STK_PAGE+1)+" / "+pages+"（"+rows.length+" 张）" : "0 张";
+  if(!rows.length){ g.innerHTML='<span class="muted">没有匹配的表情（换个词试试）</span>'; return; }
+  let html="";
+  pageRows.forEach(it=>{
+    const on=!!it.registered;
+    const cap = on ? (it.registered_key||"已登记") : it.md5.slice(0,6);
+    const dup = it.dup_count|0;
+    const tip = it.md5 + (on ? (" · 已登记："+(it.registered_key||"")+(it.registered_label?("（情绪："+it.registered_label+"）"):"")) : " · 未登记")
+              + (dup>1 ? (" · 同图还有 "+(dup-1)+" 个文件（已合并显示）") : "")
+              + (it.has_thumb ? "" : " · 本地没有可用图");
+    html += '<figure class="stcell'+(on?' on':'')+'" title="'+esc(tip)+'" data-md5="'+it.md5+'" onclick="stickerClick(this.dataset.md5)">'
+         + (it.has_thumb ? '<img src="'+it.thumb+'" alt="">' : '<span class="stno">图丢了</span>')
+         + (dup>1 ? '<span class="stdup">×'+dup+'</span>' : '')
+         + '<figcaption>'+esc(cap)+'</figcaption></figure>';
+  });
+  g.innerHTML=html;
+  poolLoad();
+  if(sub){
+    const files=STICKERS.files||STICKERS.total, dups=STICKERS.dups|0;
+    sub.textContent = "本地缓存 "+files+" 个文件"
+      + (dups>0 ? ("，同图合并后 "+STICKERS.total+" 张（"+dups+" 个是同图不同编码，只显示代表那张）") : ("，共 "+STICKERS.total+" 张"))
+      + "；已登记 "+STICKERS.registered+" 张。点一张未登记的图直接填图意即登记（绿框=已登记，×N=同图文件数）。";
+  }
+}
+function renderPool(){
+  const g=$("#pool-grid"); if(!g) return;
+  const d=(POOL&&POOL.rows)||[];
+  const n=$("#pool-n"); if(n) n.textContent=(POOL&&POOL.total!=null)?POOL.total:"…";
+  if(!d.length){ g.innerHTML='<span class="muted">池子是空的——还没有登记任何表情</span>'; return; }
+  g.innerHTML=d.map(it=>'<figure class="stcell on" title="'+esc(it.key+(it.label?"（"+it.label+"）":"")+" · "+it.evidence)+'" onclick="poolPick(\''+it.md5+'\')">'
+    +(it.thumb?'<img src="'+it.thumb+'" alt="">':'<span class="stno">图丢了</span>')
+    +'<figcaption>'+esc(it.key)+'</figcaption><span class="sbex">'+esc(it.evidence)+'</span></figure>').join("");
+}
+function poolPick(md5){
+  const box=$("#pool-detail"); if(!box) return;
+  const it=((POOL&&POOL.rows)||[]).find(x=>x.md5===md5); if(!it) return;
+  box.innerHTML="<b>"+esc(it.key)+"</b> · 情绪 "+esc(it.label||"—")+" · 证据 "+esc(it.evidence)
+    +" · md5 <code>"+esc(String(it.md5).slice(0,16))+"</code>"
+    +"<br><span class='muted'>"+esc(it.note||"")+"</span>";
+}
+async function poolLoad(){
+  try{ POOL = await lawFetch("/cmd", {cmd:"sticker_registered"}, 8000); renderPool(); }
+  catch(e){ const g=$("#pool-grid"); if(g) g.innerHTML='<span class="muted">读不到池子：'+esc(String(e&&e.message||e))+'</span>'; }
+}
+
+function _stickerRow(md5){ return ((STICKERS&&STICKERS.rows)||[]).find(x=>x.md5===md5); }
+function _dupLine(it){
+  const o=it.dup_others||[]; if(!o.length) return "";
+  return "<div style='margin-top:6px;color:#8b959d;font-size:12px'>同图还有 "+o.length+" 个文件："+o.map(x=>x.slice(0,8)).join("、")+"（合并显示成这一张）</div>";
+}
+function askSticker(opt){
+  opt = opt || {};
+  return new Promise(function(resolve){
+    const wrap=document.createElement("div");
+    wrap.style.cssText="position:fixed;inset:0;background:rgba(4,8,12,.62);z-index:60;display:flex;align-items:center;justify-content:center";
+    const box=document.createElement("div");
+    box.setAttribute("role","dialog"); box.setAttribute("aria-modal","true"); box.setAttribute("aria-label","登记这张表情");
+    box.style.cssText="background:#161a1e;border:1px solid #2d3339;border-radius:2px;padding:18px 18px 14px;width:360px;box-shadow:0 18px 48px rgba(0,0,0,.55)";
+    const h=document.createElement("div"); h.textContent="登记这张表情";
+    h.style.cssText="font-size:14px;color:var(--fg);margin-bottom:10px";
+    box.appendChild(h);
+    const feels=(opt.feels||[]).slice();
+    const scopes=[["any","都行"],["owner","只对主人"],["group","只对群"]];
+    function field(labelTxt, el){
+      const row=document.createElement("label");
+      row.style.cssText="display:flex;align-items:center;gap:8px;margin:7px 0;font-size:12px;color:var(--dim)";
+      const t=document.createElement("span"); t.textContent=labelTxt; t.style.cssText="width:44px;flex:none";
+      row.appendChild(t); row.appendChild(el); box.appendChild(row); return row;
+    }
+    const inp=document.createElement("input");
+    inp.placeholder="比如：喝奶茶，看戏"; inp.maxLength=24;
+    inp.style.cssText="flex:1;background:#0f1215;border:1px solid #2d3339;border-radius:1px;color:var(--fg);padding:6px 8px;font-size:12.5px";
+    field("图意", inp);
+    const feel=document.createElement("select");
+    feel.style.cssText="flex:1;background:#0f1215;border:1px solid #2d3339;border-radius:1px;color:var(--fg);padding:6px;font-size:12.5px";
+    feel.innerHTML='<option value="">（先不标）</option>'+feels.map(function(w){return '<option value="'+w+'">'+w+'</option>';}).join("");
+    field("情绪", feel);
+    const inten=document.createElement("select");
+    inten.style.cssText=feel.style.cssText;
+    inten.innerHTML=[0,1,2,3,4,5].map(function(n){return '<option value="'+n+'">'+(n?n+" 分":"（不标）")+'</option>';}).join("");
+    field("强度", inten);
+    const scope=document.createElement("select");
+    scope.style.cssText=feel.style.cssText;
+    scope.innerHTML=scopes.map(function(p){return '<option value="'+p[0]+'">'+p[1]+'</option>';}).join("");
+    field("范围", scope);
+    const taboo=document.createElement("input"); taboo.type="checkbox";
+    field("严肃场合别用", taboo);
+    const tip=document.createElement("div");
+    tip.style.cssText="color:var(--bad);font-size:11.5px;min-height:16px";
+    box.appendChild(tip);
+    const row=document.createElement("div");
+    row.style.cssText="display:flex;gap:8px;justify-content:flex-end;margin-top:10px";
+    const okB=document.createElement("button"); okB.className="btn primary"; okB.textContent="登记";
+    const noB=document.createElement("button"); noB.className="btn"; noB.textContent="取消";
+    row.appendChild(noB); row.appendChild(okB); box.appendChild(row);
+    wrap.appendChild(box); document.body.appendChild(wrap);
+    setTimeout(function(){ try{ inp.focus(); }catch(_e){} }, 20);
+    function close(v){ document.removeEventListener("keydown", onKey, true); wrap.remove(); resolve(v); }
+    function submit(){
+      const v=String(inp.value||"").trim();
+      if(!v){ tip.textContent="图意不能空（她靠这句话认这张图）"; try{inp.focus();}catch(_e){} return; }
+      close({key:v, feel:feel.value, intensity:Number(inten.value||0), scope:scope.value||"any", taboo:!!taboo.checked});
+    }
+    function onKey(e){
+      if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(null); }
+      else if(e.key==="Enter"){ e.preventDefault(); submit(); }
+    }
+    document.addEventListener("keydown", onKey, true);
+    noB.onclick=function(){ close(null); };
+    okB.onclick=submit;
+  });
+}
+function stickerPick(md5){
+  // 2026-11-01：点已登记的那张 → 看详情 + 撤销。之前这里调的是一个不存在的函数，
+  // 于是"点已登记的图没有任何反应"。
+  const it=_stickerRow(md5), box=$("#sticker-detail");
+  if(!it || !box) return;
+  box.dataset.md5 = md5;
+  const tl=[it.registered_feel||"",
+            it.registered_intensity?("强度 "+it.registered_intensity):"",
+            (it.registered_scope && it.registered_scope!=="any")?(it.registered_scope==="owner"?"只对主人":"只对群"):"",
+            it.registered_taboo?"严肃场合不用":""].filter(Boolean).join(" · ");
+  const mem=(it.members|0)>1 ? (" · 这一簇共 "+it.members+" 个文件") : "";
+  box.innerHTML = "<b>"+esc(it.registered_key||"已登记")+"</b>"
+    + (tl?(" · "+esc(tl)):"") + mem
+    + " · md5 <code>"+esc(String(md5).slice(0,12))+"</code>"
+    + _dupLine(it)
+    + " <button class='btn small' style='margin-left:8px' onclick=\"forgetPick()\">撤销登记</button>";
+}
+function stickerClick(md5){
+  const it=_stickerRow(md5); if(!it) return;
+  if(it.registered){ stickerPick(md5); return; }      // 已登记 → 看详情/撤销
+  askSticker({feels:(_poolFeels||[])})
+    .then(function(v){
+      if(!v || !v.key) return;
+      const body={cmd:"sticker_register", md5:md5, key:v.key,
+                  feel:v.feel||"", intensity:v.intensity||0, scope:v.scope||"any", taboo:!!v.taboo};
+      return lawFetch("/cmd", body, 8000).then(function(r){
+        if(!r.ok){ lawSetMsg("登记失败："+(r.error||""), true); return; }
+        it.registered=true; it.registered_key=r.key;
+        it.registered_feel=v.feel||""; it.registered_intensity=v.intensity||0;
+        it.registered_scope=v.scope||"any"; it.registered_taboo=!!v.taboo;
+        it.members=(r.members&&r.members.length)||1;
+        renderStickers(); poolLoad();                       // 就地翻牌 + 池子实时刷新
+        const tl=[v.feel, v.intensity?("强度"+v.intensity):"", v.scope!=="any"?(v.scope==="owner"?"只对主人":"只对群"):"", v.taboo?"严肃场合不用":""]
+                   .filter(Boolean).join(" · ");
+        lawSetMsg("已登记："+r.key+(tl?("（"+tl+"）"):"")+"，池子 "+r.total+" 张", false);
+      });
+    }).catch(function(err){ lawSetMsg("登记失败："+err, true); });
+}
+function forgetPick(){
+  const md5 = $("#sticker-detail").dataset.md5;
+  if(!md5) return;
+  lawFetch("/cmd", {cmd:"sticker_forget", md5:md5}, 8000)
+    .then(r=>{ lawSetMsg(r.ok ? ("已撤销："+r.removed.join("、")) : ("撤销失败："+(r.error||"")), !r.ok); loadStickers(true); })
+    .catch(e=> lawSetMsg("撤销失败："+e, true));
+}
+
+function render(){
+  if(!STATE) return;
+  const s=STATE;
+  $("#clock").textContent=s.now||"—";
+
+  /* 头部（2026-10-27：状态缺字段时不要整页崩，缺就当 unknown） */
+  const _e=s.engine||{}, _m=s.main||{};
+  setDot("#d-engine", _e.state);
+  $("#t-engine").textContent = _e.alive
+    ? `${_e.pid} · ${_e.ticks} 拍`
+    : (_e.state==="missing"?"没在跑":"进程没了");
+  setDot("#d-main", _m.state);
+  $("#t-main").textContent = _m.state==="ok"
+    ? `${_m.pid} · ${_m.ticks} 拍`
+    : (_m.state==="missing"?"没在跑":`停了 ${_m.age_text||"无心跳"}`);
+  const _w0=s.world||{};   // 缺 world 时原来的第一处裸访问就会抛 undefined
+  const lag=_w0.lag_s, gap=_w0.sync_gap_s;
+  setDot("#d-world", gap==null?"bad":gap<120?"ok":gap<600?"warn":"bad");
+  $("#t-world").textContent = (gap==null? "同步未知" : `同步 ${Math.round(gap)}s`) + (lag==null? "" : ` · 最后 ${fmtAge(lag)}`);
+  renderTopline();
+
+  /* 视界 */
+  const w=_w0, dec=s.decrypted||{};
+  $("#world-card").innerHTML =
+    `<h3>世界新鲜度</h3>
+     <div class="kv"><i>她看到的最新</i><span class="mono">${esc(humanTs(w.max_at))}　${lag==null?"":`（${fmtAge(lag)}）`}</span></div>
+     <div class="kv"><i>解密库最新</i><span class="mono">${esc(humanTs(dec.newest))}　${dec.lag_s==null?"":`（${fmtAge(dec.lag_s)}）`}</span></div>
+     <div class="bar"><i style="width:${lag==null?0:Math.max(3,Math.min(100,100-lag/18))}%"></i></div>
+     <div class="kv"><i>同步差</i><span class="mono">${w.sync_gap_s==null?"—":Math.round(w.sync_gap_s)+" 秒"}</span>
+       <span class="muted" style="color:var(--dim2)">（解密库最新 − 她看到的最新）</span></div>
+     <div class="kv"><i>会话</i><span>${(w.chats||[]).length} 个在视野里</span></div>
+     <div class="kv"><i>QQ 通道</i><span class="mono" style="color:${(w.qq&&w.qq.open)?'var(--ok)':'var(--bad)'}">${w.qq? (w.qq.open?"已连接":"未连接") : "—"}</span><span class="muted" style="color:var(--dim2)">　${esc((w.qq&&w.qq.url)||"")}</span></div>
+     <div class="kv"><i>数据源</i><span class="mono" style="font-size:12px">${(w.sources||[]).map(esc).join(" ｜ ")||"—"}</span></div>'
+     ${w.note?`<div class="empty">${esc(w.note)}</div>`:""}`;
+
+  const chats=(w.chats||[]);
+  $("#chats-card").innerHTML = "<h3>她看到的（最近 400 条里，每个会话最后几句）</h3>" +
+    (chats.length? chats.map(c=>{
+      const nm = c.name || c.chat_id;
+      const plat = c.platform? c.platform + " " : "";
+      const who = plat + (c.chat_id.includes("@chatroom")? "群 " + nm : nm);
+      return `<div class="chat"><div class="who">${esc(who)}　最后 ${esc((c.last_at||"").slice(5,16))}</div>` +
+        (c.lines||[]).slice().reverse().map(l=>
+          `<div class="line ${l.self?"me":"them"}"><span class="at">${esc((l.at||"").slice(11,16))}</span>${l.self?"我":esc(l.who||"")}：${esc(tidy(l.text))}${l.ocr?`<span class="ocr">｜原文：${esc(l.ocr)}</span>`:""}</div>`
+        ).join("") + `</div>`;
+    }).join("") : `<div class="empty">没有读到消息</div>`);
+
+  /* 心 */
+  const v=s.vitals||{};
+  $("#vitals-card").innerHTML =
+    `<h3>此刻</h3>
+     <div class="kv"><i>想说话 social</i><span class="mono">${Number(v.social||0).toFixed(3)} / 1.0　（0.72 就敢自己开口）</span></div>
+     <div class="bar"><i style="width:${Math.min(100,v.social*100)}%"></i></div>
+     <div class="kv" style="margin-top:10px"><i>清醒 arousal</i><span class="mono">${Number(v.arousal||0).toFixed(3)}</span></div>
+     <div class="bar"><i style="width:${Math.min(100,v.arousal*100)}%"></i></div>
+     <div class="kv" style="margin-top:10px"><i>上次开口</i><span>${v.last_spoke_age_text||"没说过"}</span></div>
+     <div class="kv"><i>没回还追</i><span>${v.spont_streak} 次（间隔 20→40→80→160→240 分钟）</span></div>
+     ${v.mood?`<div class="kv"><i>心境</i><span>${esc(v.mood)}</span></div>`:""}
+     ${v.doing?`<div class="kv"><i>手头在做</i><span>${esc(v.doing)}</span></div>`:""}`;
+
+  $("#stance-card").innerHTML = "<h3>她对这几个人的看法</h3>" +
+    ((v.stance||[]).length? v.stance.map(x=>`<div class="kv"><i>${esc(x.who)}</i><span>${esc(x.text)}</span></div>`).join("")
+      : `<div class="empty">还没有表态记录</div>`);
+
+  drawSpark((s.history||[]));
+
+  /* 账 */
+  const L=s.ledger||{};
+  const acts=L.acts||{};
+  /* 2026-11-01：回执数原本读 ledger.deliveries —— 那份恒为 0（actions 日志里没有
+     delivery 行），账页一直显示"已证实 0 / 未证实 0"。真数在 outbound.counts。 */
+  const _oc0 = ((s.outbound||{}).counts)||{};
+  $("#stats-card").innerHTML = `<h3>${esc(L.date)}</h3><div class="chips">` +
+    Object.entries(acts).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<span class="chip">${esc(k)} <b>${n}</b></span>`).join("") +
+    `<span class="chip">回执 已证实 <b>${_oc0.confirmed||0}</b> / 未证实 <b>${_oc0.unconfirmed||0}</b></span></div>` +
+    (L.note?`<div class="empty">${esc(L.note)}</div>`:"");
+  $("#promise-card").innerHTML = `<h3>我还欠着的（${L.promise_open}）</h3>` +
+    ((L.promises||[]).filter(p=>p.open).length? L.promises.filter(p=>p.open).map(p=>
+      `<div class="kv"><i>${esc((p.at||"").slice(5,16))}</i><span>${esc(p.who)}：${esc(p.what)}</span></div>`).join("")
+     : `<div class="empty">没有未销账的承诺</div>`);
+  const O = s.outbound || {};
+  $("#says-card").innerHTML = `<h3>最近开口</h3>` +
+    ((O.rows||[]).length? (O.rows||[]).slice(0,20).map(x=>
+      `<div class="say"><div class="meta">${esc((x.at||"").slice(5,16))}　${esc(x.who)}　<span class="mono">${esc(x.stage)}${x.ack?` / ${esc(x.ack)}`:""}</span>${x.kind==="sticker"?'<span class="tag">表情</span>':""}</div>
+       <div class="txt">${esc(x.text)}</div>${x.why?`<div class="why">${esc(x.why)}</div>`:""}</div>`).join("")
+     : `<div class="empty">最近 24 小时没有开口</div>`)
+    /* 孤儿气泡：队列里有、账本里没有 —— 不写账本的那条失败只存在于队列行上 */
+    + (O.orphan_n ? `<div class="why" style="color:#cf5a4e">队列里另有 ${O.orphan_n} 条气泡没走账本`
+        + (O.orphan_bad ? `，其中 <b>${O.orphan_bad}</b> 条发失败` : "") + "："
+        + (O.orphans||[]).slice(0,3).map(o=>`${esc((o.at||"").slice(5,16))} ${esc(o.state)}${o.ack?("/"+esc(o.ack)):""} ${esc(String(o.text||"(无预览)").slice(0,18))}`).join("；")
+        + `</div>` : "");
+
+  /* 口 / 思（P1 记录层） */
+  renderVoice(s);
+  renderMind(s);
+  renderTry(s);
+  renderNotebook(s);
+  renderLogs(s);
+
+  try{ renderOverview(s); renderRail(s); }catch(_e){}
+
+  /* 右rail：优先用记录层里的原话，其次退回账本 */
+  const tsaid=((s.trace||{}).said||[]).slice(-3).reverse();
+  const says=(O.rows||[]).slice(0,3);
+  $("#rail-says").innerHTML = tsaid.length ? tsaid.map(x=>
+      `<div class="item"><b>${esc((x.at||"").slice(11,16))} → ${esc(x.target)}　<span class="muted">${esc(x.ack)}</span></b><p>${esc(x.text||x.why||"")}</p></div>`).join("")
+    : (says.length ? says.map(x=>
+      `<div class="item"><b>${esc((x.at||"").slice(11,16))} → ${esc(x.who)}　<span class="muted">${esc(x.stage)}</span></b><p>${esc(x.text||x.why||"")}</p></div>`).join("")
+      : `<div class="muted">最近 24 小时没开口</div>`);
+}
+
+/* ===== 概览 / 侧栏（2026-11-01）：一屏回答「她活着吗 · 在跟谁说话 · 有什么等我」 ===== */
+function _ovAgo(ts){
+  const m = String(ts || "").match(/(\d{2}):(\d{2})/);
+  return m ? m[1] + ":" + m[2] : (ts ? String(ts).slice(5, 16) : "—");
+}
+
+async function ovBlocked(){
+  /* 被她自己挡下来的话：今天几条、最近 7 天几条、最常是哪道闸。
+     数据来自 speak_policy_blocked_days（读 logs/blocked.jsonl + 按天小计）。
+     纪律：`missing` 为真时写「还没记过」，绝不写 0 —— 「没拦过」和「没记过」结论相反。 */
+  const box = $("#ov-blocked");
+  if(!box) return;
+  try{
+    const r = await lawFetch("/cmd", {cmd:"speak_policy_blocked_days", days:7});
+    if(!r || r.ok === false){
+      box.innerHTML = `<div class="ovrow"><span class="dot warn"></span><b>查不到</b>`
+        + `<span class="muted">${esc((r && r.error) || "")}</span></div>`;
+      return;
+    }
+    if(r.missing){
+      box.innerHTML = `<div class="ovrow"><span class="dot warn"></span><b>还没记过</b>`
+        + `<span class="muted">logs/blocked.jsonl 不存在</span></div>`;
+      return;
+    }
+    const cats = r.by_category || {};
+    const top = (r.top || [])[0];
+    const bits = Object.keys(cats).map(k => `${esc(k)} ${Number(cats[k])||0}`).join(" · ");
+    box.innerHTML =
+      `<div class="ovtodo">`
+      + `<div><div class="ovbig">${Number(r.today)||0}</div><div class="ovlab">今天被挡下</div></div>`
+      + `<div><div class="ovbig">${Number(r.total)||0}</div><div class="ovlab">最近 ${Number(r.days)||7} 天</div></div>`
+      + (top ? `<div><div class="ovbig" style="font-size:14px;line-height:1.5">${esc(top.label)}</div>`
+          + `<div class="ovlab">最常挡的（${Number(top.n)||0} 条）</div></div>` : "")
+      + `</div>`
+      + (bits ? `<div class="ovrow"><i>分道闸</i><b style="font-weight:400">${bits}</b></div>` : "")
+      + `<div class="ovrow"><i>明细</i><b style="font-weight:400">律 · Config → 说话白名单下方逐条列着</b></div>`;
+  }catch(e){
+    box.innerHTML = "";
+  }
+}
+
+function renderOverview(s){
+  const e = s.engine || {}, m = s.main || {}, w = s.world || {}, v = s.vitals || {};
+  const q = s.queue || {}, L = s.ledger || {};   /* 2026-11-01：对账那份已改为读出口视图，这里不再取 */
+  const lvl = (st)=> st === "ok" ? "ok" : (st === "missing" ? "bad" : "warn");
+  const txt = (st)=> st === "ok" ? "在跑" : (st === "missing" ? "没在跑" : "异常");
+
+  const vb = $("#ov-vital");
+  if (vb) vb.innerHTML =
+    `<div class="ovrow"><span class="dot ${lvl(e.state)}"></span><i>引擎</i><b>${txt(e.state)}</b>`
+      + `<span class="muted">${e.pid ? ("pid " + e.pid) : ""}${e.idle != null ? (" · 闲 " + e.idle) : ""}</span></div>`
+    + `<div class="ovrow"><span class="dot ${lvl(m.state)}"></span><i>主程序</i><b>${txt(m.state)}</b>`
+      + `<span class="muted">${m.job ? esc(m.job) : ""}${m.age_text ? (" · " + esc(m.age_text)) : ""}</span></div>`
+    + `<div class="ovrow"><span class="dot ${w.lag_s == null ? "warn" : (w.lag_s < 180 ? "ok" : "warn")}"></span>`
+      + `<i>世界</i><b>${w.lag_s == null ? "读不到" : ("差 " + Math.round(w.lag_s) + " 秒")}</b>`
+      + `<span class="muted">${(w.chats || []).length} 个会话</span></div>`;
+
+  const pb = $("#ov-pulse");
+  if (pb) pb.innerHTML =
+    `<div class="ovlab">想说话 social</div>`
+    + `<div class="bar"><i style="width:${Math.min(100, (v.social || 0) * 100)}%"></i></div>`
+    + `<div class="ovlab" style="margin-top:12px">清醒 arousal</div>`
+    + `<div class="bar"><i style="width:${Math.min(100, (v.arousal || 0) * 100)}%"></i></div>`
+    + `<div class="ovrow" style="margin-top:12px"><i>上次开口</i><b>${esc(v.last_spoke_age_text || "没说过")}</b></div>`
+    + (v.doing ? `<div class="ovrow"><i>手头在做</i><b>${esc(v.doing)}</b></div>` : "")
+    + (v.mood ? `<div class="ovrow"><i>心境</i><b>${esc(v.mood)}</b></div>` : "");
+
+  const _oc = (s.outbound || {}).counts || {};
+  const bad = (q.failed || 0) + (q.expired || 0), pending = q.pending || 0;
+  const owe = L.promise_open || 0, blind = _oc.unconfirmed || 0, lost = _oc.no_queue || 0;
+  const orph = (s.outbound || {}).orphan_bad || 0;   /* 队列里有、账本里没有的失败 */
+  const tb = $("#ov-todo");
+  if (tb){
+    const items = [];
+    if (orph) items.push(`<div><div class="ovbig" style="color:#cf5a4e">${orph}</div><div class="ovlab">不走账本的失败</div></div>`);
+    if (bad) items.push(`<div><div class="ovbig" style="color:#cf5a4e">${bad}</div><div class="ovlab">发失败 / 过期</div></div>`);
+    if (lost) items.push(`<div><div class="ovbig" style="color:#cf5a4e">${lost}</div><div class="ovlab">说了没进队列</div></div>`);
+    if (pending) items.push(`<div><div class="ovbig" style="color:#e0913f">${pending}</div><div class="ovlab">排队待发</div></div>`);
+    if (blind) items.push(`<div><div class="ovbig" style="color:#e0913f">${blind}</div><div class="ovlab">没等到认账</div></div>`);
+    if (owe) items.push(`<div><div class="ovbig">${owe}</div><div class="ovlab">欠着的承诺</div></div>`);
+    tb.innerHTML = items.length
+      ? `<div class="ovtodo">${items.join("")}</div>`
+      : `<div class="ovrow"><span class="dot ok"></span><b>没有卡住的事</b><span class="muted">队列、承诺、回执都干净</span></div>`;
+  }
+
+  /* §45.6 第 1 条：概览上直接给「今天被挡了几条」，不用翻到「律」里去数。 */
+  ovBlocked();
+
+  const cb = $("#ov-chats");
+  if (cb){
+    const chats = (w.chats || []).slice()
+      .sort((a, b)=> String(b.last_at || "").localeCompare(String(a.last_at || ""))).slice(0, 4);
+    cb.innerHTML = chats.length ? chats.map((c)=>{
+      const ln = (c.lines || [])[0] || {};
+      return `<div class="ovrow"><i>${esc(c.name || c.chat_id || "")}</i>`
+        + `<b style="font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(ln.text || "").slice(0, 40))}</b>`
+        + `<span class="muted">${esc(_ovAgo(c.last_at))}</span></div>`;
+    }).join("") : `<div class="empty">最近没有消息</div>`;
+  }
+}
+
+function renderRail(s){
+  const v = s.vitals || {}, q = s.queue || {}, L = s.ledger || {}, O = s.outbound || {};
+  const now = $("#rail-now");
+  if (now) now.innerHTML =
+    `<div class="bar"><i style="width:${Math.min(100, (v.social || 0) * 100)}%"></i></div>`
+    + `<div class="muted" style="margin:4px 0 10px">想说话 ${Number(v.social || 0).toFixed(2)} · 清醒 ${Number(v.arousal || 0).toFixed(2)}</div>`
+    + (v.doing ? `<div class="muted">在做：${esc(v.doing)}</div>` : "");
+  const todo = $("#rail-todo");
+  if (todo){
+    const _c = O.counts || {};
+    const bad = (q.failed || 0) + (q.expired || 0);
+    const blind = _c.unconfirmed || 0, lost = _c.no_queue || 0;
+    const pending = q.pending || 0, owe = L.promise_open || 0;
+    const orph = O.orphan_bad || 0;   /* 队列里有、开口记录里没有的失败 */
+    todo.innerHTML = (!bad && !pending && !owe && !blind && !lost && !orph)
+      ? `<div class="muted">没有卡住的事</div>`
+      : (orph ? `<div class="item"><b style="color:#cf5a4e">${orph} 条不走账本的失败</b><p>队列里有，开口记录里没有</p></div>` : "")
+      + (bad ? `<div class="item"><b style="color:#cf5a4e">${bad} 条发失败</b><p>去「口」看原因</p></div>` : "")
+        + (lost ? `<div class="item"><b style="color:#cf5a4e">${lost} 条说了但没进队列</b><p>去「口」看对账</p></div>` : "")
+        + (blind ? `<div class="item"><b style="color:#e0913f">${blind} 条没等到认账</b><p>发出去了，平台没回确认</p></div>` : "")
+        + (pending ? `<div class="item"><b style="color:#e0913f">${pending} 条待发</b><p>队列里排着</p></div>` : "")
+        + (owe ? `<div class="item"><b>${owe} 个承诺没销账</b><p>去「账」看是哪句</p></div>` : "");
+  }
+}
+
+const SCENE_NAME = (x)=>({private:"私聊", group:"群", mixed:"群+私聊"}[x] || x || "—");
+
+let _lgAll = [];
+function lgReload(){
+  try{ lawFetch("/state").then(r => renderLogs(r)); }catch(e){}
+}
+function renderLogs(s){
+  const lg = (s && s.logs) || {};
+  _lgAll = lg.events || [];
+  const note = $("#lg-note");
+  if(note) note.textContent = (_lgAll.length ? _lgAll.length + " 条 · " : "") + ((lg.files || []).join(" · ") || "还没有日志");
+  lgDraw();
+  lgHist(lg.hist);
+}
+function lgDraw(){
+  const box = $("#lg-list"); if(!box) return;
+  const ql = ((($("#lg-filter") || {}).value || "").trim()).toLowerCase();
+  const lv = String((($("#lg-level") || {}).value || "all")).toLowerCase();
+  const _lvOk = function(r){
+    if(lv === "all") return true;
+    const t = String(r.level || (r.text||"").slice(0,40) || "").toLowerCase();
+    if(lv === "error") return t.includes("error") || t.includes("exception") || t.includes("traceback");
+    return t.includes("warn") || t.includes("error") || t.includes("exception");
+  };
+  const rows = _lgAll.filter(r => _lvOk(r) && (!ql || (((r.text || "") + " " + (r.logger || "") + " " + (r.src || "")).toLowerCase().includes(ql))));
+  const keepTop = box.scrollTop;   // 重建前先记住位置，否则「暂停跟随」等于没勾
+  box.innerHTML = "";
+  rows.slice(-500).forEach(r => {
+    const d = document.createElement("div"); d.className = "lgrow";
+    const t = document.createElement("span"); t.className = "lgt"; t.textContent = (r.t ? r.t + " " : "");
+    const g = document.createElement("span"); g.className = "lgs"; g.textContent = "[" + (r.src || "") + "] ";
+    const x = document.createElement("span"); x.textContent = r.text || "";
+    d.append(t, g, x); box.appendChild(d);
+  });
+  if(!rows.length) box.innerHTML = '<div class="empty">没有匹配的日志</div>';
+  // 2026-11-01：跟着看的时候自动落到底；勾了「暂停跟随」就一刻都不动，方便往上翻
+  const paused = !!(($("#lg-pause") || {}).checked);
+  if(paused){
+    const keep = keepTop;
+    if(keep!=null) box.scrollTop = keep;
+  }else{
+    box.scrollTop = box.scrollHeight;
+  }
+}
+/* 2026-11-01：日志密度条 —— 400 条文本里看不出「哪一分钟在刷错误」 */
+function lgHM(m){
+  m = Math.max(0, Math.round(m));
+  return ((m / 60) | 0) + ":" + String(m % 60).padStart(2, "0");
+}
+function lgHistBox(){
+  var box = document.getElementById("lg-hist");
+  if (box) return box;
+  var list = document.getElementById("lg-list");
+  if (!list || !list.parentNode) return null;
+  box = document.createElement("div");
+  box.id = "lg-hist";
+  box.style.cssText = "margin:2px 0 8px";
+  list.parentNode.insertBefore(box, list);
+  return box;
+}
+function lgHist(hist){
+  var box = lgHistBox(); if (!box) return;
+  var rows = hist || [];
+  if (!rows.length){ box.innerHTML = ""; return; }
+  // 分钟桶可能很多（512KB 日志能从半小时到几小时）：超过 120 就相邻合并
+  var step = Math.max(1, Math.ceil(rows.length / 120));
+  var bars = [], i, j;
+  for (i = 0; i < rows.length; i += step){
+    var n = 0, bad = 0, wrn = 0;
+    for (j = i; j < Math.min(rows.length, i + step); j++){
+      n += rows[j].n || 0;
+      bad += rows[j].bad || 0;
+      wrn += rows[j].warn || 0;
+    }
+    bars.push({t: rows[i].t, n: n, bad: bad, wrn: wrn});
+  }
+  var sig = bars.length + "|" + bars[bars.length - 1].n + "|" + bars[0].t;
+  if (box.__sig === sig) return;
+  box.__sig = sig;
+  var max = 1;
+  for (i = 0; i < bars.length; i++) if (bars[i].n > max) max = bars[i].n;
+  var cells = [];
+  for (i = 0; i < bars.length; i++){
+    var b = bars[i];
+    var h = b.n ? Math.max(10, Math.round(b.n / max * 100)) : 3;
+    var c = b.bad ? "var(--bad)" : (b.wrn ? "var(--warn)" : "rgba(176,141,87,.5)");
+    var tip = b.t + " · " + b.n + " 条" + (b.bad ? "，error " + b.bad : "") + (b.wrn ? "，warn " + b.wrn : "")
+            + (step > 1 ? "（" + step + " 分钟合并）" : "");
+    cells.push('<i title="' + tip + '" style="flex:1;height:' + h + '%;background:' + c
+               + ';border-radius:2px 2px 0 0"></i>');
+  }
+  box.innerHTML = '<div style="display:flex;gap:10px;align-items:baseline;font-size:11.5px;color:var(--dim2);margin-bottom:4px">'
+    + '<span>事件密度</span><span class="mono">' + bars[0].t + '–' + bars[bars.length - 1].t + '</span>'
+    + '<span style="margin-left:auto">柱高＝每分钟条数；红＝含 error，黄＝含 warn；取自日志文件最后 512KB</span></div>'
+    + '<div style="display:flex;align-items:flex-end;gap:1px;height:26px">' + cells.join("") + '</div>';
+}
+
+function renderNotebook(s){
+  const nb = (s && s.notebook) || {}, days = nb.days || [], memo = nb.memo || [];
+  const dbox = $("#nb-days"), mbox = $("#nb-memo"), nbox = $("#nb-note");
+  if(!dbox || !mbox) return;
+  dbox.innerHTML = ""; mbox.innerHTML = "";
+  if(!days.length){
+    const e = document.createElement("div");
+    e.textContent = "她还没写过小本本。每天凌晨 3 点写一段；当天写不出来就跳过。";
+    e.style.opacity = ".6"; dbox.appendChild(e);
+  } else {
+    days.forEach(d => {
+      const head = document.createElement("div");
+      head.style.cssText = "margin:16px 0 6px;font-size:13px;letter-spacing:.4px";
+      const b = document.createElement("b"); b.textContent = d.day || "（没日期）";
+      const meta = document.createElement("span");
+      meta.textContent = " " + (d.at || "") + (d.chars ? " · " + d.chars + " 字" : "");
+      meta.style.cssText = "opacity:.55;font-size:12px";
+      head.appendChild(b); head.appendChild(meta); dbox.appendChild(head);
+      const body = document.createElement("div");
+      body.textContent = d.text || "";
+      body.style.cssText = "white-space:pre-wrap;line-height:1.95;margin-bottom:2px";
+      dbox.appendChild(body);
+    });
+  }
+  if(!memo.length){
+    const e = document.createElement("div");
+    e.textContent = "常驻板还是空的（她还没往里记过东西）。";
+    e.style.opacity = ".6"; mbox.appendChild(e);
+  } else {
+    memo.forEach(m => {
+      const row = document.createElement("div");
+      row.style.cssText = "line-height:1.8;margin:9px 0;padding-left:10px;border-left:2px solid rgba(176,141,87,.35)";
+      const head = document.createElement("div");
+      head.style.cssText = "opacity:.6;font-size:12px";
+      head.textContent = (m.at || "") + " · " + (m.kind_label || m.kind || "记着") + (m.target ? " · 对「" + m.target + "」" : "");
+      const body = document.createElement("div");
+      body.textContent = m.text || "";
+      row.appendChild(head); row.appendChild(body); mbox.appendChild(row);
+    });
+  }
+  if(nbox){
+    nbox.textContent = "小本本 " + (nb.n_days || 0) + " 天 · 常驻板 " + (nb.n_memo || 0) + " 条"
+      + (nb.note ? "　" + nb.note : "")
+      + "　（文件：data/loop/self_history.jsonl、data/loop/memo.jsonl）";
+  }
+}
+
+function renderVoice(s){
+  const T=(s.trace||{}), said=T.said||[];
+  const cnt={}; said.forEach(x=>{const k=x.ack||"?"; cnt[k]=(cnt[k]||0)+1;});
+  $("#voice-pipe").innerHTML = `<h3>出口管道（最近 ${(T.turns||[]).length} 拍）</h3>
+    <div class="chips">${Object.entries(cnt).map(([k,v])=>`<span class="chip">${esc(k)} <b>${v}</b></span>`).join("") || '<span class="chip">还没有发出去的话</span>'}</div>
+    <table>
+      <tr><td class="k">气泡拆分</td><td>ports.split_bubbles，一次最多 3 条，每条十几字</td></tr>
+      <tr><td class="k">tone_gate</td><td>shadow 模式：只看不改（outbound_audit 里 before_len == after_len）</td></tr>
+      <tr><td class="k">回执</td><td>发送后 20/40/80/160/300 秒回查 messages 自证，查到即 confirmed；绝不重发</td></tr>
+    </table>`;
+  $("#voice-card").innerHTML = `<h3>说出去的原话</h3>` + (said.length ? said.slice().reverse().map(x=>
+    `<div class="say"><div class="meta">${esc((x.at||"").slice(11,16))} → ${esc(x.target)}　<span class="mono">${esc(x.ack)}${x.chars?" · "+x.chars+" 字":""}</span></div>
+     ${x.text?`<div class="txt">${esc(x.text)}</div>`:""}${x.why?`<div class="why">${esc(x.why)}</div>`:""}</div>`).join("")
+    : `<div class="empty">还没有真正发出去的话（试跑与静默不计）</div>`);
+}
+
+function renderMind(s){
+  const T=(s.trace||{}), turns=T.turns||[], det=T.detail||{};
+  if(!turns.length){
+    $("#mind-turns").innerHTML = `<div class="empty">${esc(T.note||"还没有记录")}</div>`;
+    $("#mind-card").innerHTML = `<div class="empty">引擎下一拍就会写 <span class="mono">data/loop/trace-YYYY-MM-DD.jsonl</span>。</div>`;
+    return;
+  }
+  if(!MTURN || !det[MTURN]) MTURN = det[turns[0].turn_id] ? turns[0].turn_id : (Object.keys(det)[0] || turns[0].turn_id);
+  $("#mind-turns").innerHTML = turns.map(t=>{
+    const on = t.turn_id===MTURN ? " on" : "";
+    const badge = t.silent ? `<span class="tag fail">没开口</span>` : `<span class="tag ok">说了 ${t.said_n}</span>`;
+    return `<div class="turn${on}" data-tid="${esc(t.turn_id)}">
+      <span class="mono">${esc((t.at||"").slice(11,16))}</span>
+      <span class="muted">${esc(SCENE_NAME(t.scene))}</span>${badge}
+      <span class="muted">${(t.steps||[]).length} 步 · ${t.tokens} tok · ${(Math.round((t.ms||0)/100)/10).toFixed(1)}s</span>
+      <span class="tprev">${esc(t.said_first||t.why||"")}</span></div>`;
+  }).join("");
+  document.querySelectorAll("#mind-turns .turn").forEach(el=>{
+    el.onclick = ()=>{ MTURN = el.dataset.tid; renderMind(STATE); };
+  });
+  const d = det[MTURN];
+  if(!d){ $("#mind-card").innerHTML = `<div class="empty">这一拍只剩摘要（完整现场只留最近 6 拍）。</div>`; return; }
+  const wake = Object.entries(d.wake||{}).map(([k,v])=>`<span class="chip">${esc(k)}=<b>${esc(v)}</b></span>`).join("");
+  const parts = (d.parts||[]).map((p,i)=>`<details class="sec"${i===0?" open":""}><summary>${esc(p.name)} <span class="muted">${p.chars} 字</span></summary><div class="pre">${esc(p.text)}</div></details>`).join("");
+  const calls = (d.calls||[]).map(c=>{
+    const tools = (c.tools||[]).length ? `<div class="kv"><i>要的工具</i><span class="mono">${c.tools.map(esc).join("、")}</span></div>` : "";
+    const reason = c.reasoning ? `<details class="sec" open><summary>她的推理（reasoning）</summary><div class="pre think">${esc(c.reasoning)}</div></details>` : "";
+    const content = c.content ? `<details class="sec"><summary>直接写下的正文（没调 say 就不会发）</summary><div class="pre">${esc(c.content)}</div></details>` : "";
+    const err = c.error ? `<div class="empty">${esc(c.error)}</div>` : "";
+    return `<div class="steprow"><div class="kv"><i>第 ${c.i} 次调用</i><span class="mono">${esc(c.model||"?")} · ${c.tokens} tok · ${(Math.round((c.ms||0)/100)/10).toFixed(1)}s</span></div>${tools}${reason}${content}${err}</div>`;
+  }).join("");
+  const steps = (d.steps||[]).map(st=>`<div class="steprow">
+      <div class="kv"><i>${esc(st.tool)}</i><span class="mono">${esc(st.args)}</span></div>
+      <div class="kv"><i>回来</i><span>${esc(st.obs)}</span></div>
+      <div class="kv"><i>账</i><span class="mono">${esc((st.receipt||{}).result||"")}${(st.receipt||{}).ack?" / "+esc(st.receipt.ack):""} · ${Math.round(st.ms||0)}ms</span></div></div>`).join("");
+  const out = d.outcome||{};
+  const said = (out.said||[]).map(x=>`<div class="say"><div class="meta">${esc(x.target)} · ${esc(x.ack)}</div><div class="txt">${esc(x.text)}</div>${x.why?`<div class="why">${esc(x.why)}</div>`:""}</div>`).join("");
+  const toks = (d.calls||[]).reduce((a,c)=>a+(c.tokens||0),0);
+  $("#mind-card").innerHTML = `<h3>${esc(d.at)}　${esc(SCENE_NAME(d.scene))}${d.dry_run?'<span class="tag fail">试跑</span>':""}</h3>
+    ${d.trigger_message?`<div class="kv"><i>谁在敲</i><span>${esc(d.trigger_message)}</span></div>`:""}
+    <div class="chips">${wake}</div>
+    <div class="kv"><i>这一拍</i><span class="mono">${toks} tokens · ${(Math.round((out.ms||0)/100)/10).toFixed(1)}s · ${(d.parts||[]).length} 段输入</span></div>
+    <h3 style="margin-top:16px">她收到什么</h3>${parts}
+    <details class="sec"><summary>system：人设 + 四道墙 + 打字规则</summary><div class="pre">${esc(d.system)}</div></details>
+    <h3 style="margin-top:16px">她想什么</h3>${calls || '<div class="empty">没有模型调用记录</div>'}
+    <h3 style="margin-top:16px">她做了什么</h3>${steps || '<div class="empty">这一拍没调工具</div>'}
+    <h3 style="margin-top:16px">结论</h3>${said || `<div class="empty">这一拍没开口：${esc(out.silent_why||"没有记录理由")}</div>`}`;
+}
+
+function drawSpark(pts){
+  const c=$("#spark"); if(!c) return;
+  const ctx=c.getContext("2d"); const w=c.width,h=c.height;
+  ctx.clearRect(0,0,w,h);
+  if(!pts||pts.length<2) return;
+  const last=pts.slice(-240);
+  const x=(i)=>i*(w-2)/(last.length-1)+1;
+  const yS=(v)=>h-4-v*(h-8);
+  const yA=(v)=>h-4-v*(h-8);
+  ctx.lineWidth=2;
+  ctx.strokeStyle="rgba(176,141,87,.95)"; ctx.beginPath();
+  last.forEach((p,i)=>{const yy=yS(p.social||0); i?ctx.lineTo(x(i),yy):ctx.moveTo(x(i),yy);}); ctx.stroke();
+  ctx.strokeStyle="rgba(125,155,118,.55)"; ctx.beginPath();
+  last.forEach((p,i)=>{const yy=yA(p.arousal||0); i?ctx.lineTo(x(i),yy):ctx.moveTo(x(i),yy);}); ctx.stroke();
+  ctx.strokeStyle="rgba(224,192,96,.35)"; ctx.setLineDash([4,4]); ctx.beginPath();
+  ctx.moveTo(0,yS(0.72)); ctx.lineTo(w,yS(0.72)); ctx.stroke(); ctx.setLineDash([]);
+}
+
+
+/* ---------------- 试衣间（P3） ---------------- */
+let TRY_BUSY = false;
+
+let TRY_CACHE = {};   // turn_id -> 最近一次试衣结果
+let TRY_WANT = "";    // 来自地址栏 #try=<turn_id>
+
+function tryWantedTurn(){
+  const h = (location.hash || "").replace(/^#/, "");
+  const m = h.match(/try=([0-9a-zA-Z_]+)/);
+  return m ? m[1] : "";
+}
+
+async function tryShowLast(tid){
+  if(!tid || !$("#try-results")) return;
+  if(TRY_CACHE[tid]){ renderTryResult(TRY_CACHE[tid]); return; }
+  try{
+    const r = await fetch(API + "/rehearsal?turn_id=" + encodeURIComponent(tid));
+    const d = await r.json();
+    if(d && d.ok && d.data){ TRY_CACHE[tid] = d.data; renderTryResult(d.data); return; }
+  }catch(e){ /* 没试过就算了 */ }
+  $("#try-results").innerHTML = `<div class="card muted">这一拍还没试过。挑好温度点「试衣」。</div>`;
+}
+
+function renderTryResult(d){
+  if(!$("#try-results")) return;
+  $("#try-status").textContent = `上次跑于 ${d.at} · ${d.n} 个变体 · ${d.tokens_total} tokens` +
+    (d.addendum ? ` · 嘱咐：${d.addendum}` : "");
+  $("#try-results").innerHTML = `<div class="vgrid">` + (d.variants||[]).map(v=>{
+    const said = (v.said||[]).filter(Boolean);
+    const body_ = said.length
+      ? said.map(t=>`<div class="vsaid">${esc(t)}</div>`).join("")
+      : `<div class="vsaid vsilent">（没说话）${esc((v.silent_why||"").slice(0,300))}</div>`;
+    const steps = (v.steps||[]).map(s=>esc(s.tool)).join(" → ") || "—";
+    const blocked = (v.blocked||[]).length ? `　<span class="tag fail">${(v.blocked||[]).length} 个动作被挡下</span>` : "";
+    const think = v.reasoning ? `<details class="sec"><summary>推理</summary><div class="pre think">${esc(v.reasoning)}</div></details>` : "";
+    const err = v.error ? `<div class="tag fail">${esc(v.error)}</div>` : "";
+    return `<div class="vcard">
+      <h4>变体 ${v.i}　<span class="muted">T ${v.temperature}${v.repeat>1?` · 第${v.repeat}遍`:""}　${esc(v.model||v.model_want||"")}${v.provider?` · ${esc(v.provider)}`:""}${(v.model_want && v.model && v.model!==v.model_want)?`（要的是 ${esc(v.model_want)}）`:""}</span></h4>
+      ${err}${body_}
+      <div class="vmeta"><span>${v.tokens} tokens</span><span>${Math.round(v.ms)} ms</span><span>工具：${steps}</span>${blocked}</div>
+      ${think}
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+async function tryModelsLoad(){
+  const box = $("#try-models");
+  if(!box || box.dataset.loaded) return;
+  try{
+    // 只走 API 常量：同源时为空、file:// 时退回本机端口；不要再写死 "models" 这种相对路径
+    const r = await fetch(API + "/models", {cache:"no-store"});
+    const d = await r.json();
+    const items = d.items || [];
+    box.innerHTML = items.map((m,i)=>
+      `<label class="${m.current?"on":""}" title="${esc(m.note||"")}">
+         <input type="checkbox" data-provider="${esc(m.provider)}" data-model="${esc(m.model)}" ${m.current?"checked":""}>
+         ${esc(m.model)}<span class="muted"> · ${esc(m.provider)}${m.current?"（当前）":""}</span>
+       </label>`).join("");
+    box.dataset.loaded = "1";
+  }catch(e){
+    box.innerHTML = `<span class="muted">读不到候选模型：${esc(e.message||e)}</span>`;
+  }
+}
+
+function renderTry(s){
+  const sel = $("#try-turn");
+  if(!sel) return;
+  const turns = ((s.trace||{}).turns || []);
+  const keep = sel.value;
+  sel.innerHTML = turns.map(t =>
+    `<option value="${esc(t.turn_id)}">${esc((t.at||"").slice(5,16))}　${esc(SCENE_NAME(t.scene))}　${esc((t.why||t.said_first||t.silent_why||"（没写 why）").slice(0,28))}</option>`
+  ).join("") || `<option value="">（还没有记录层数据）</option>`;
+  if(keep && turns.some(t=>t.turn_id===keep)) sel.value = keep;
+  const want = tryWantedTurn();
+  if(want && turns.some(t=>t.turn_id===want) && sel.value !== want){ sel.value = want; TRY_WANT = want; }
+  const cur = sel.value;
+  if(cur && !TRY_BUSY && (!sel._shown || sel._shown !== cur)){ sel._shown = cur; tryShowLast(cur); }
+}
+
+async function runRehearsal(){
+  if(TRY_BUSY) return;
+  const tid = $("#try-turn").value;
+  if(!tid){ $("#try-status").textContent = "先选一拍"; return; }
+  const temps = [...document.querySelectorAll("#try-temps input:checked")].map(x=>parseFloat(x.value));
+  if(!temps.length){ $("#try-status").textContent = "至少勾一个温度"; return; }
+  const models = [...document.querySelectorAll("#try-models input:checked")]
+    .map(x=>({provider:x.dataset.provider, model:x.dataset.model}));
+  const body = {
+    turn_id: tid,
+    temperatures: temps,
+    models: models,
+    repeats: $("#try-repeat").checked ? 2 : 1,
+    addendum: $("#try-addendum").value || "",
+    by: "panel"
+  };
+  TRY_BUSY = true;
+  $("#try-status").textContent = "在跑（每档一次调用，等十几秒）…";
+  $("#try-results").innerHTML = "";
+  try{
+    const r = await fetch(API + "/rehearse", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    const d = await r.json();
+    if(!d.ok){ $("#try-status").textContent = "失败：" + (d.error || "未知"); return; }
+    TRY_CACHE[tid] = d;
+    renderTryResult(d);
+  }catch(e){
+    $("#try-status").textContent = "请求失败：" + e;
+  }finally{
+    TRY_BUSY = false;
+  }
+}
+
+/* 2026-10-31：顶部一行人话摘要。每句话只回答一个"我该怎么办"的问题，
+   技术细节仍然留在原 header（pid / 拍数）里，需要才看。 */
+function renderTopline(){
+  if(!STATE) return;
+  const s = STATE, e = s.engine || {}, q = s.queue || {}, ss = s.say_stats || {}, w = s.world || {}, v = s.vitals || {};
+  const run = $("#tl-run"), say = $("#tl-say"), que = $("#tl-queue"), wl = $("#tl-world");
+  if(run){
+    if(e.alive){
+      run.className = "tl ok";
+      const at = String(e.last_tick_at || "");
+      run.innerHTML = "<b>她在</b> 已经跑了 " + (e.ticks||0) + " 拍" + (at ? ("，上一拍 " + esc(at.slice(11))) : "");
+    } else {
+      run.className = "tl bad";
+      run.innerHTML = "<b>AI 引擎没在跑</b> 去「律」点「启动全部」";
+    }
+  }
+  if(say){
+    let last = "";
+    if(ss.last_at) last = esc(String(ss.last_at));
+    else if(v.last_spoke_age_text) last = esc(String(v.last_spoke_age_text)) + "前";
+    say.className = "tl";
+    say.innerHTML = "<b>最后开口</b> " + (last || "今天还没说过话");
+  }
+  if(que){
+    const n = q.n || 0, pend = q.pending || 0, fail = q.failed || 0;
+    que.className = "tl" + (fail ? " warn" : "");
+    let t;
+    if(!n) t = "队列是空的";
+    else if(fail) t = (pend ? pend + " 条还没发，" : "") + fail + " 条发不出去（在「口」里看原因）";
+    else if(pend) t = pend + " 条正等着发出去";
+    // 2026-11-01：原来显示「待发消息 52 条都处理完了」——那个 52 是**全部历史行数**，
+    // 她一条没待发的时候反而最像"积压了 52 条"。现在只有真的没待发才这么说。
+    else t = "没有待发的（一共处理过 " + n + " 条）";
+    que.innerHTML = "<b>待发消息</b> " + t;
+  }
+  if(wl){
+    const gap = w.sync_gap_s;
+    wl.className = "tl" + (gap == null ? " warn" : (gap < 120 ? " ok" : " warn"));
+    wl.innerHTML = "<b>世界同步</b> " + (gap == null ? "拿不到" : ("差 " + Math.round(gap) + " 秒"));
+  }
+}
+
+let LAST_OK=0;   // 上一次成功拿到 /state 的时刻（连不上时用来告诉用户「最后成功」）
+async function load(){
+  try{
+    const r=await fetch(HTTP + "/state?t="+Date.now(),{cache:"no-store"});
+    const d0=await r.json();
+    // 2026-10-27：采集器重启/写状态的那一两秒会给出 {ok:false,error} 或半截壳。
+    // 以前直接喂给 render()，第一处裸访问就抛 "Cannot read properties of undefined"，
+    // 而且这条红字一旦写上就再也不会自己消掉（12:35:22 那条就是这么留下来的）。
+    if(!r.ok || !d0 || d0.ok===false || !d0.now || !d0.world || !d0.vitals || !d0.ledger){
+      const why=(d0&&d0.error)?String(d0.error):("HTTP "+r.status);
+      const el=document.getElementById("err");
+      if(el) el.textContent="状态还没准备好（自动重试中）："+why;
+      if(!STATE) $("#clock").textContent="采集器没在跑";
+      return;
+    }
+    STATE=d0; render();
+    loadStickers();
+    LAST_OK=Date.now();
+    const el=document.getElementById("err"); if(el) el.textContent="";
+  }catch(e){
+    // 2026-10-30：fetch 失败（TypeError: Failed to fetch）和「渲染出错」是两件事。
+    // 前者是采集器不在了，页面只需要说清「连不上 + 最后成功是什么时候」；
+    // 后者才是代码 / 数据结构的问题。混在一起会把「没连上」写成「渲染错了」。
+    if(e instanceof TypeError){
+      const d=document.getElementById("err");
+      const last=LAST_OK?("最后成功 "+new Date(LAST_OK).toLocaleTimeString()):"还没有成功过";
+      if(d) d.textContent="连不上采集器（"+((HTTP||location.origin))+"）："+last+"，正在重试…";
+      if(!STATE) $("#clock").textContent="采集器没在跑";
+      return;
+    }
+    if(!STATE) $("#clock").textContent="采集器没在跑";
+    const at=((e&&e.stack)||"").split("\n")[1]||"";
+    const d=document.getElementById("err");
+    if(d) d.textContent="渲染出错: "+((e&&e.message)||e)+(at?("　"+at.trim()):"");
+  }
+}
+function fromHash(){
+  const raw=(location.hash||"").replace("#","");
+  if(!raw) return;
+  const r = raw.split("=")[0];          // #try=<turn_id> 也能落到房间
+  const b=document.querySelector('.navbtn[data-room="'+r+'"]'); if(b) b.click();
+}
+fromHash();
+if($("#try-run")) $("#try-run").onclick = runRehearsal;
+if($("#check-run")) $("#check-run").onclick = ()=>checkupLoad(true);
+// 2026-11-01：出问题时点一下，把现场落成一个文件（不用再问"哪一页、几点、什么错"）
+if($("#check-dump")) $("#check-dump").onclick = async ()=>{
+  const b=$("#check-dump"); if(!b) return; const old=b.textContent;
+  b.disabled=true; b.textContent="打包中…";
+  try{
+    const r=await lawFetch("/cmd", {cmd:"diagnose_dump", args:{}}, 30000);
+    const at=$("#check-at");
+    if(r && r.ok){
+      if(at) at.textContent="诊断包："+r.path+"（"+(r.size/1024).toFixed(0)+" KB）";
+      b.textContent="已导出";
+    }else{
+      if(at) at.textContent="导出失败："+((r&&r.error)||"未知原因");
+      b.textContent="导出失败";
+    }
+  }catch(e){
+    const at=$("#check-at"); if(at) at.textContent="导出失败："+String(e&&e.message||e);
+    b.textContent="导出失败";
+  }
+  setTimeout(()=>{ b.disabled=false; b.textContent=old; }, 2500);
+};
+document.querySelectorAll('.navbtn[data-room="check"]').forEach(b=>b.addEventListener("click", ()=>checkupLoad(true)));
+setInterval(()=>{ const r=document.getElementById("room-check"); if(r && r.classList.contains("on")) checkupLoad(false); }, 2000);
+if($("#try-turn")) $("#try-turn").onchange = (e)=>{ tryShowLast(e.target.value); };
+load(); setInterval(load,2000);
+lawLoad();
+
+
+/* ============================ 检（P4） ============================ */
+let CHECK = null, CHECK_LOADING = false;
+
+function ckEsc(s){ return String(s==null?"":s).replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+function renderCheck(d){
+  CHECK = d;
+  if(!d) return;
+  const dot = $("#check-dot"), head = $("#check-head"), sub = $("#check-sub");
+  if(dot) dot.className = "ckdot " + (d.level||"unknown");
+  if(head) head.textContent = ({ok:"一切正常", warn:"能跑，但有几处要看", fail:"有问题，得先处理", unknown:"还看不出来"})[d.level] || (d.level||"");
+  if(sub) sub.textContent = (d.headline||"") + (d.at ? "　（"+d.at+"）" : "");
+  const c = d.counts || {};
+  const cc = $("#check-counts");
+  if(cc) cc.innerHTML = ["ok","warn","fail","unknown"].map(k=>`<span class="chip">${{ok:"正常",warn:"注意",fail:"有问题",unknown:"未知"}[k]} ${c[k]||0}</span>`).join("");
+  const at = $("#check-at"); if(at) at.textContent = d.at ? "体检于 " + d.at : "";
+  const list = $("#check-list");
+  if(list) list.innerHTML = (d.checks||[]).map(x=>`
+      <div class="ckrow">
+        <div class="ckt"><span class="ckdot ${x.level}"></span>${ckEsc(x.title)}<span class="muted" style="margin-left:8px;font-size:12.5px">${ckEsc(x.id)}</span></div>
+        <div class="ckl">${ckEsc(x.line)}</div>
+        ${(x.evidence&&x.evidence.length)?`<details><summary class="muted" style="font-size:12px">证据 ${x.evidence.length} 条</summary><div class="ckev">${x.evidence.map(ckEsc).join("\n")}</div></details>`:""}
+        ${x.hint?`<div class="ckh">修法：${ckEsc(x.hint)}</div>`:""}
+      </div>`).join("");
+}
+
+async function checkupLoad(force){
+  if(CHECK_LOADING) return;
+  CHECK_LOADING = true;
+  try{
+    const url = API + "/checkup";
+    const r = await fetch(url + (force?"?fresh=1":""), {cache:"no-store"});
+    renderCheck(await r.json());
+  }catch(e){
+    renderCheck({level:"unknown", headline:"拿不到体检结果："+(e&&e.message||e), counts:{}, checks:[], at:""});
+  }finally{ CHECK_LOADING = false; }
+}
+
+/* ============================ 律（P2） ============================ */
+let LAW = null, LAW_DIFF = "", LAW_CHANGES = null;
+
+function lawEsc(s){ return String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+/* 2026-10-31：原来这里是裸 fetch —— 面板后端卡住时按钮会永远停在"执行中…"，
+   既没有超时也不能取消；后端 500 返回 HTML 时还会抛 "Unexpected token '<'"。
+   现在：默认 15 秒超时（长命令显式传大值），非 JSON 一律翻成人话。 */
+async function lawFetch(path, body, timeoutMs){
+  const ms = (timeoutMs == null) ? 15000 : timeoutMs;
+  const ctl = (typeof AbortController === "function") ? new AbortController() : null;
+  const opt = body ? {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)} : {};
+  if(ctl) opt.signal = ctl.signal;
+  const timer = setTimeout(()=>{ try{ if(ctl) ctl.abort(); }catch(_e){} }, ms);
+  try{
+    const r = await fetch(API+path, opt);
+    const ct = String((r.headers && r.headers.get && r.headers.get("content-type")) || "");
+    if(ct.indexOf("application/json") < 0){
+      let txt = ""; try{ txt = await r.text(); }catch(_e){}
+      throw new Error("面板后端回了看不懂的东西（HTTP " + (r.status || "?") + "）：" + String(txt || "").slice(0, 100));
+    }
+    return await r.json();
+  }catch(e){
+    if(e && (e.name === "AbortError" || e.name === "TimeoutError")){
+      const err = new Error("等了 " + Math.round(ms/1000) + " 秒还没回应（面板后端可能卡住或已经退出）。可以再点一次；一直这样就在 Windows 里双击桌面「鲸鲸」重开面板。");
+      err.name = "TimeoutError";
+      throw err;
+    }
+    if(e instanceof TypeError){
+      throw new Error("连不上面板后端（它可能没在跑）。双击桌面「鲸鲸」可以重开。");
+    }
+    throw e;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+let PC_CUR = null;
+let PC_DIRTY = false;   // 2026-10-31：卡编辑器的"改过没存"标记
+
+function cardMsg(t, bad){
+  const el = $("#card-msg"); if(!el) return;
+  el.textContent = t || "";
+  el.style.color = bad ? "var(--bad)" : "var(--dim)";
+}
+
+function pcMsg(t, bad){
+  const el = $("#pc-msg"); if(!el) return;
+  el.textContent = t || "";
+  el.style.color = bad ? "var(--bad)" : "var(--dim)";
+}
+
+function pcRender(list){
+  const box = $("#card-grid"); if(!box) return;
+  box.innerHTML = (list||[]).map(c=>{
+    const badge = c.active ? '<span class="pb">生效中</span>' : '';
+    const meta = [c.voice ? "声音 "+c.voice : "", c.looks ? "外观 "+c.looks : ""].filter(Boolean).join(" · ");
+    const look = c.chars ? ("整块 " + c.chars + " 字") : "（空卡）";
+    const cls = "pcard" + (c.active ? " active" : "");
+    return '<div class="' + cls + '" data-name="' + esc(c.name) + '">'
+      + '<div class="pbud">' + (c.bytes||0) + 'B</div>'
+      + '<div class="pnm">' + esc(c.name) + badge + '</div>'
+      + '<div class="pid">' + esc(look) + '</div>'
+      + '<div class="pmeta">' + esc(meta || "没挂声音/外观包") + '</div>'
+      + '</div>';
+  }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll(".pcard"), el=>{
+    el.addEventListener("click", ()=>pcOpen(el.dataset.name));
+  });
+}
+
+async function cardsLoad(){
+  try{
+    const r = await lawFetch("/cmd", {cmd:"card_list"});
+    if(r.ok){ pcRender(r.cards||[]); cardMsg("生效中："+(r.active||"?")+"（共 "+(r.cards||[]).length+" 张，点任意一张看详情）", false); }
+    else { cardMsg(r.error||"读不到卡", true); }
+    const st = await lawFetch("/cmd", {cmd:"state"});
+    const v = (st && ((st.values && st.values.voice) || st.voice)) || {};
+    const vs = $("#voice-slug"), ls = $("#looks-slug"), line = $("#voice-line");
+    if(vs && document.activeElement !== vs) vs.value = v.voice_slug || "";
+    if(ls && document.activeElement !== ls) ls.value = v.looks_slug || "";
+    if(line){
+      const eng = Object.keys(v.engines||{}).filter(k=>(v.engines||{})[k]).join("/") || "没有可用引擎";
+      line.textContent = "卡："+(v.card||"?")
+        + " · 声音包："+(v.voice_pack ? ("有（"+(v.voice||"默认音")+"）") : "没有，用默认音")
+        + " · 台词 "+(v.canon_chars||0)+" 字"
+        + " · 外观包："+(v.looks_pack ? ("有 \u00b7 "+(v.faces||0)+" 张") : "没有")
+        + " · 引擎："+eng;
+    }
+  }catch(e){ cardMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+async function pcOpen(name){
+  const mask = $("#card-mask"); if(!mask) return;
+  try{
+    const r = await lawFetch("/cmd", {cmd:"card_show", name});
+    if(!r.ok){ cardMsg(r.error||"打不开这张卡", true); return; }
+    PC_CUR = r;
+    {
+      // 2026-10-27：卡只有一种格式（一整块自由文本），弹窗恒为一个大框。
+      // 2026-10-27：卡是一整块自由文本，弹窗里就是一个大框，不做字段拆分。
+      const t = String(r.text || "");
+      $("#pc-title").textContent = r.name;
+      $("#pc-sub").textContent = (r.active ? "· 生效中 " : "· 未生效 ") + "· " + r.path
+                               + " · 整块 " + r.chars + "/" + r.cap + " 字";
+      $("#pc-body").innerHTML = '<div class="pcfld"><label>整张卡（一块提示词，排版随你）'
+        + '<span id="pc-count" class="muted" style="font-weight:400">（' + r.chars + '/' + r.cap + ' 字）</span></label>'
+        + '<textarea id="pc-text" data-k="text" spellcheck="false" '
+        + 'style="min-height:44vh;font-size:13px;line-height:1.7;font-family:ui-monospace,Consolas,monospace">'
+        + t.replace(/</g, "&lt;") + '</textarea>'
+        + '<div class="muted" style="font-size:12px;margin-top:6px">'
+        + '文件开头的 name / voice / looks 三行会被保留；正文一个字不改地整块给她看。</div></div>';
+      const ta = $("#pc-text"), cnt = $("#pc-count");
+      if(ta && cnt) ta.addEventListener("input", function(){
+        PC_DIRTY = true;
+        const n = ta.value.length;
+        cnt.textContent = "（" + n + "/" + r.cap + " 字）";
+        cnt.style.color = n > r.cap ? "var(--bad)" : "";
+      });
+      pcMsg("", false);
+      PC_DIRTY = false;
+      Array.prototype.forEach.call(document.querySelectorAll("#pc-body [data-k]"), el=>{
+        el.addEventListener("input", ()=>{ PC_DIRTY = true; });
+      });
+      mask.hidden = false;
+      const _ta = $("#pc-text");
+      if(_ta) setTimeout(()=>{ try{ _ta.focus(); }catch(_e){} }, 30);
+      return;
+    }
+  }catch(e){ cardMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+/* 2026-10-31：原来直接 hidden=true —— 改了半天点一下 ✕ 就全没了，也没有提示。 */
+function pcClose(){
+  const m = $("#card-mask"); if(!m || m.hidden) return;
+  if(PC_DIRTY && !confirm("这张卡改了还没保存。\n\n点「取消」回去保存；点「确定」丢掉这些改动。")) return;
+  PC_DIRTY = false;
+  m.hidden = true;
+}
+
+function pcPatch(){
+  const out = {};
+  Array.prototype.forEach.call(document.querySelectorAll("#pc-body [data-k]"), el=>{
+    const k = el.dataset.k;
+    if(el.dataset.lines) out[k] = el.value.split("\n").map(v=>v.trim()).filter(Boolean);
+    else out[k] = el.value.trim();
+  });
+  return out;
+}
+
+async function pcSave(){
+  if(!PC_CUR) return;
+  const patch = pcPatch();
+  try{
+    const pre = await lawFetch("/cmd", {cmd:"card_save", name:PC_CUR.name, patch, dry_run:true});
+    if(!pre.ok){ pcMsg(pre.error||"改不了", true); return; }
+    if(pre.noop){ pcMsg("没有改动", false); return; }
+    if(!confirm("写进 "+(PC_CUR.path||PC_CUR.name)+"？\n\n"+(pre.diff||""))) return;
+    const got = await lawFetch("/cmd", {cmd:"card_save", name:PC_CUR.name, patch, dry_run:false});
+    pcMsg(got.note || got.error || (got.ok?"已保存":"失败"), !got.ok);
+    if(got.ok) PC_DIRTY = false;
+    setTimeout(cardsLoad, 600);
+  }catch(e){ pcMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+async function pcSwitch(){
+  if(!PC_CUR) return;
+  const nm = PC_CUR.name;
+  try{
+    const pre = await lawFetch("/cmd", {cmd:"card_switch", name:nm, confirm:false});
+    if(!pre.ok){ pcMsg(pre.error||"切不了", true); return; }
+    if(pre.noop){ pcMsg("已经是生效卡了", false); return; }
+    if(!confirm("把生效卡换成「"+nm+"」？\n\n"+(pre.diff||""))) return;
+    const got = await lawFetch("/cmd", {cmd:"card_switch", name:nm, confirm:true});
+    pcMsg(got.note || got.error || (got.ok?"已切换":"失败"), !got.ok);
+    setTimeout(cardsLoad, 600);
+  }catch(e){ pcMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+/* 2026-10-31：不再用 window.prompt（风格突兀、没法校验、Esc 行为不一致）。
+   自建小弹窗：Esc / 点外面 = 取消，Enter = 确定，校验不过就留在原地。 */
+function askText(opt){
+  opt = opt || {};
+  return new Promise(function(resolve){
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "position:fixed;inset:0;background:rgba(4,8,12,.6);display:flex;align-items:center;justify-content:center;z-index:9999";
+    const box = document.createElement("div");
+    box.setAttribute("role","dialog"); box.setAttribute("aria-modal","true");
+    box.style.cssText = "background:#14181c;border:1px solid #363c41;border-radius:2px;padding:16px 18px;min-width:320px;max-width:520px";
+    const h = document.createElement("div");
+    h.textContent = opt.title || "请输入"; h.style.cssText = "font-size:13.5px;margin-bottom:10px;color:#e7eae8";
+    const inp = document.createElement("input");
+    inp.value = opt.value || ""; inp.placeholder = opt.placeholder || "";
+    inp.setAttribute("aria-label", opt.title || "请输入");
+    inp.style.cssText = "width:100%;box-sizing:border-box;background:#13171b;color:#e6ece9;border:1px solid rgba(255,255,255,.14);border-radius:1px;padding:8px 10px;font-size:13.5px";
+    const tip = document.createElement("div");
+    tip.style.cssText = "font-size:12px;color:#8b959d;margin-top:6px;min-height:16px";
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:12px";
+    const okB = document.createElement("button"); okB.className = "btn primary"; okB.textContent = opt.okText || "确定";
+    const noB = document.createElement("button"); noB.className = "btn"; noB.textContent = "取消";
+    row.appendChild(noB); row.appendChild(okB);
+    box.appendChild(h); box.appendChild(inp); box.appendChild(tip); box.appendChild(row); wrap.appendChild(box);
+    document.body.appendChild(wrap);
+    setTimeout(function(){ try{ inp.focus(); inp.select(); }catch(_e){} }, 20);
+    function close(v){ document.removeEventListener("keydown", onKey, true); wrap.remove(); resolve(v); }
+    function submit(){
+      const v = String(inp.value || "").trim();
+      const bad = opt.validate ? opt.validate(v) : "";
+      if(bad){ tip.textContent = bad; tip.style.color = "var(--bad)"; try{ inp.focus(); }catch(_e){} return; }
+      close(v);
+    }
+    function onKey(e){
+      if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); close(null); }
+      else if(e.key === "Enter"){ e.preventDefault(); submit(); }
+    }
+    document.addEventListener("keydown", onKey, true);
+    okB.onclick = submit;
+    noB.onclick = function(){ close(null); };
+    wrap.addEventListener("mousedown", function(e){ if(e.target === wrap) close(null); });
+  });
+}
+
+/* 卡名校验单独拎出来：能被单测，不会随着弹窗一起烂掉 */
+function cardNameProblem(v, have){
+  if(!v) return "名字不能空着";
+  if(v.length > 20) return "最多 20 个字，现在是 " + v.length + " 个";
+  if(have && have[v]) return "已经有一张叫「" + v + "」的卡了，换一个";
+  return "";
+}
+
+async function pcSaveAs(){
+  if(!PC_CUR) return;
+  const have = {};
+  const list = (LAW && LAW.cards) || [];
+  for(let i = 0; i < list.length; i++){ if(list[i] && list[i].name) have[list[i].name] = 1; }
+  const nm = await askText({
+    title: "新卡叫什么？（会从「" + PC_CUR.name + "」复制一份）",
+    placeholder: "≤20 字，别跟已有的重名",
+    okText: "建这张卡",
+    validate: function(v){ return cardNameProblem(v, have); }
+  });
+  if(!nm) return;
+  try{
+    const got = await lawFetch("/cmd", {cmd:"card_new", name:nm.trim(), source:PC_CUR.name});
+    pcMsg(got.note || got.error || (got.ok?"已建卡":"失败"), !got.ok);
+    if(got.ok) cardsLoad();
+  }catch(e){ pcMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+async function cardNew(){
+  const nm = ($("#card-new-name")||{}).value || "";
+  const from = ($("#card-new-from")||{}).value || "";
+  if(!nm.trim()){ cardMsg("先写个新卡名字", true); return; }
+  try{
+    const got = await lawFetch("/cmd", {cmd:"card_new", name:nm.trim(), source:from.trim()});
+    cardMsg(got.note || got.error || (got.ok?"已建卡":"失败"), !got.ok);
+    if(got.ok){ if($("#card-new-name")) $("#card-new-name").value = ""; cardsLoad(); }
+  }catch(e){ cardMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+async function voiceSave(){
+  const vs = (($("#voice-slug")||{}).value || "").trim();
+  const ls = (($("#looks-slug")||{}).value || "").trim();
+  const patch = {voice: vs, looks: ls};
+  try{
+    const pre = await lawFetch("/cmd", {cmd:"set", target:"persona", patch, dry_run:true});
+    if(!pre.ok){ cardMsg(pre.error||"写不进", true); return; }
+    if(!confirm("把 voice/looks 写进当前人格卡？\n\n"+(pre.diff||""))) return;
+    const got = await lawFetch("/cmd", {cmd:"set", target:"persona", patch, dry_run:false});
+    cardMsg(got.note || got.error || (got.ok?"已写入卡":"失败"), !got.ok);
+    setTimeout(cardsLoad, 800);
+  }catch(e){ cardMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+function voicePlay(){
+  const slug = ($("#voice-slug")||{}).value || "";
+  const au = $("#voice-audio");
+  if(!au) return;
+  au.style.display = "block";
+  au.src = API + "/voice?slug=" + encodeURIComponent(slug) + "&t=" + Date.now();
+  au.play().catch(function(){});
+  cardMsg("正在合成…（第一次要几秒；只合成，不发送）", false);
+}
+
+function lawSetMsg(t, bad){
+  const el = $("#law-msg"); if(!el) return;
+  el.textContent = t || "";
+  el.style.color = bad ? "var(--bad)" : "var(--dim)";
+}
+
+function lawSid(k){ return String(k).replace(/\./g,"_"); }
+
+function lawInput(schema, val){
+  const k = schema.key, sid = lawSid(k), kind = schema.kind;
+  if(kind === "hours"){
+    const a = (val && val[0] != null) ? val[0] : 23, b = (val && val[1] != null) ? val[1] : 7;
+    return `<div class="hours"><input type="number" min="0" max="23" id="law-${sid}-a" value="${a}">
+            <span class="muted">点 →</span><input type="number" min="0" max="23" id="law-${sid}-b" value="${b}">
+            <span class="muted">点</span></div>`;
+  }
+  if(kind === "float" || kind === "int"){
+    const step = schema.step || 1;
+    return `<input type="number" step="${step}" min="${schema.min}" max="${schema.max}" id="law-${sid}" value="${val==null?"":val}">`;
+  }
+  if(kind === "bool"){
+    return `<label class="muted" style="display:flex;align-items:center;gap:8px;font-size:13px">
+      <input type="checkbox" id="law-${sid}" ${val ? "checked" : ""}> <span>开着</span></label>`;
+  }
+  if(kind === "text"){
+    return `<textarea id="law-${sid}" rows="3" maxlength="${schema.max}">${lawEsc(val||"")}</textarea>`;
+  }
+  if(kind === "lines"){
+    return `<textarea id="law-${sid}" rows="4">${lawEsc((val||[]).join("\n"))}</textarea>`;
+  }
+  if(kind === "rate"){
+    const rows = (val||[]).map((it,i)=>`<tr>
+        <td><input type="text" id="law-${sid}-w${i}" value="${lawEsc(it.word)}"></td>
+        <td style="width:34%"><input type="number" min="0" max="${schema.max_per}" id="law-${sid}-n${i}" value="${it.max_per}"></td>
+      </tr>`).join("");
+    return `<table class="rate" id="law-${sid}">${rows}</table>
+            <div class="muted" style="font-size:12.5px;margin-top:4px">格式：口头禅 · 每段最多出现几次</div>`;
+  }
+  return `<input type="text" id="law-${sid}" value="${lawEsc(val==null?"":val)}">`;
+}
+
+function renderChannel(){
+  const box = $("#law-channel"); if(!box) return;
+  const rows = (LAW.schema || []).filter(s=>s.group === "channel");
+  const byPlat = {};
+  rows.forEach(s=>{ (byPlat[s.platform] = byPlat[s.platform] || []).push(s); });
+  const vals = (LAW.values && LAW.values.channel) || {};
+  box.innerHTML = Object.keys(byPlat).map(p=>{
+    const label = byPlat[p][0].platform_label || p;
+    return `<div style="grid-column:1/-1;margin-top:10px"><b style="font-size:13px">${lawEsc(label)}</b>
+      <span class="muted" style="font-size:12.5px;margin-left:6px">${lawEsc(p)}</span>
+      <div class="hint" style="margin-top:2px">群里另加：必须 @ 对方、不发语音、发完慢一点（这几条固定在代码里，不单独开开关）</div></div>`
+      + byPlat[p].map(s=>{
+          const v = vals[s.key.slice(s.key.indexOf(".") + 1)];
+          return `<div class="fld"><label>${lawEsc(s.label)}${s.unit ? `（${s.unit}）` : ""}</label>
+            ${lawInput(s, v)}<div class="hint">${lawEsc(s.hint || "")}</div></div>`;
+        }).join("");
+  }).join("");
+  channelPreview();
+}
+
+async function channelPreview(){
+  const pre = $("#law-channel-text"); if(!pre) return;
+  try{
+    const got = await lawFetch("/cmd", {cmd:"channel_get"});
+    if(!got || !got.ok){ pre.textContent = "读不到渠道约定：" + ((got && got.error) || "未知原因"); return; }
+    const order = ["wechat", "qq"];
+    const names = {wechat:"微信", qq:"QQ"};
+    pre.textContent = order.filter(p=>got.text && got.text[p])
+      .map(p=>`【${names[p] || p} · 私聊】\n${got.text[p]}`
+        + (got.group_text && got.group_text[p] ? `\n\n【${names[p] || p} · 群聊】\n${got.group_text[p]}` : ""))
+      .join("\n\n");
+  }catch(e){ pre.textContent = "连不上面板后端：" + (e.message || e); }
+}
+
+function renderLaw(){
+  if(!LAW) return;
+  $("#law-card").textContent = (LAW.values && LAW.values.card) || "—";
+  if(LAW.values && LAW.values.card) selfNameSet(LAW.values.card);
+  renderChannel();
+  const rt = LAW.schema.filter(s=>s.group==="runtime");
+  // 2026-10-27 用户要求：人设卡就是「一个字段」——整块散文，不拆类别、不按字段改。
+  $("#law-runtime").innerHTML = rt.map(s=>{
+    const v = ((LAW.values.runtime)||{})[s.key.split(".")[1]];
+    return `<div class="fld"><label>${lawEsc(s.label)}${s.unit?`（${s.unit}）`:""}</label>
+      ${lawInput(s, v)}<div class="hint">${lawEsc(s.hint||"")}</div></div>`;
+  }).join("");
+  const _card = LAW.card || {};
+  const _ctext = String(_card.text || "");
+  const _cchars = (_card.chars != null) ? _card.chars : _ctext.length;
+  const _ccap = _card.cap || 2600;
+  const _cpath = _card.path || "data/persona/cards/<名字>.md";
+  $("#law-persona").innerHTML = `
+    <div class="fld">
+      <label>整张卡（一块提示词，排版随你）
+        <span class="muted" style="font-weight:400" id="law-card-count">（${_cchars}/${_ccap} 字）</span>
+      </label>
+      <textarea id="law-card-text" spellcheck="false" style="min-height:40vh;width:100%;font-size:13px;line-height:1.7;font-family:ui-monospace,Consolas,monospace;background:#101214;color:#eceeef;border:1px solid #25292d;border-radius:2px;padding:12px">${lawEsc(_ctext)}</textarea>
+      <div class="hint">${_card.ok === false ? '<b style="color:var(--bad)">读不到这份卡正文：' + lawEsc(_card.error || "未知原因") + '</b>（采集器可能是旧版，重启一次就好）<br>' : ""}人设只有这一个字段：写什么、怎么排版都由你决定，注入时原样整块给她。
+        情绪和态度不在这里——那是 <span class="mono">loop/selfstate.py</span> 按当下事实维护的「我自己的状态」，程序写，你不改。</div>
+      <div style="margin-top:14px;border-top:1px solid #222629;padding-top:12px">
+        <label for="law-names-input">我的名字（寻址用 · 逗号分隔）
+          <span class="muted" style="font-weight:400" id="law-names-count"></span>
+        </label>
+        <input id="law-names-input" spellcheck="false" placeholder="鲸鲸, 小鲸鲸" style="width:100%;font-size:13px;font-family:ui-monospace,Consolas,monospace">
+        <div class="hint" id="law-names-hint">唯一来源：<span class="mono">data/persona/me_names.json</span>。<b>没有兜底</b>——这里没写，群里 @你 / 拍你 / 引用你 全都认不出来（★ 不会亮）；私聊不受影响。</div>
+        <div style="margin-top:8px"><button id="law-names-save">保存名字</button>
+          <span class="muted" style="font-size:12.5px;margin-left:8px">改完下一句消息就按新名单认；写前留备份、可回滚</span></div>
+      </div>
+      <div style="margin-top:8px"><button id="law-card-save">保存这张卡</button>
+        <span class="muted" style="font-size:12.5px;margin-left:8px">文件：${lawEsc(_cpath)}（写前出 diff、留备份、可回滚）</span></div>
+    </div>`;
+  const _cta = $("#law-card-text");
+  if(_cta) _cta.addEventListener("input", ()=>{
+    const n = _cta.value.length, c = $("#law-card-count");
+    if(c){ c.textContent = `（${n}/${_ccap} 字）`; c.style.color = n > _ccap ? "var(--bad)" : ""; }
+  });
+  const _csb = $("#law-card-save");
+  if(_csb) _csb.addEventListener("click", lawCardSave);
+
+  const _mn = (LAW.me_names && LAW.me_names.ok !== false) ? (LAW.me_names.names || []) : [];
+  const _nin = $("#law-names-input");
+  if(_nin) _nin.value = _mn.join(", ");
+  const _ncnt = $("#law-names-count");
+  if(_ncnt){
+    _ncnt.textContent = _mn.length ? ("（" + _mn.length + " 个：认这些）") : "（空：不认任何名字）";
+    _ncnt.style.color = _mn.length ? "" : "var(--bad)";
+  }
+  const _nh = $("#law-names-hint");
+  if(_nh && LAW.me_names && LAW.me_names.ok === false){
+    _nh.innerHTML = '<b style="color:var(--bad)">读不到名字文件：' + lawEsc(LAW.me_names.error || "未知原因") + '</b>';
+  }
+  const _nsb = $("#law-names-save");
+  if(_nsb) _nsb.addEventListener("click", lawNamesSave);
+  renderLawAudit();
+}
+
+async function lawNamesSave(){
+  const inp = $("#law-names-input"); if(!inp) return;
+  const raw = inp.value || "";
+  try{
+    const pre = await lawFetch("/cmd", {cmd:"me_names_set", names: raw, dry_run:true});
+    if(!pre.ok){ cardMsg(pre.error || "改不了", true); return; }
+    if(pre.noop){ cardMsg("没有变化", false); return; }
+    const shown = (pre.names || []).join(", ") || "（空）";
+    if(!confirm("把这几个名字当成「我」？\n\n之前：" + ((pre.before || []).join(", ") || "（空）") + "\n之后：" + shown + "\n\n" + (pre.note || ""))) return;
+    const got = await lawFetch("/cmd", {cmd:"me_names_set", names: raw, dry_run:false});
+    cardMsg(got.note || got.error || (got.ok ? "已保存" : "失败"), !got.ok);
+    setTimeout(lawLoad, 600);
+  }catch(e){ cardMsg("连不上面板后端：" + (e.message || e), true); }
+}
+
+async function lawCardSave(){
+  const ta = $("#law-card-text"); if(!ta) return;
+  const name = (LAW.card || {}).name || ($("#law-card") ? $("#law-card").textContent : "") || "";
+  const patch = {text: ta.value};
+  try{
+    const pre = await lawFetch("/cmd", {cmd:"card_save", name, patch, dry_run:true});
+    if(!pre.ok){ cardMsg(pre.error || "改不了", true); return; }
+    if(pre.noop){ cardMsg("没有改动", false); return; }
+    if(!confirm("写进 " + ((LAW.card||{}).path || name) + "？\n\n" + (pre.diff || ""))) return;
+    const got = await lawFetch("/cmd", {cmd:"card_save", name, patch, dry_run:false});
+    cardMsg(got.note || got.error || (got.ok ? "已保存" : "失败"), !got.ok);
+    setTimeout(lawLoad, 600);
+  }catch(e){ cardMsg("连不上面板后端：" + (e.message || e), true); }
+}
+
+function lawReadOne(s){
+  const k = s.key, sid = lawSid(k), kind = s.kind;
+  if(kind === "hours"){
+    return [Number($(`#law-${sid}-a`).value), Number($(`#law-${sid}-b`).value)];
+  }
+  if(kind === "float" || kind === "int") return Number($(`#law-${sid}`).value);
+  if(kind === "bool") return !!($(`#law-${sid}`) || {}).checked;
+  if(kind === "text") return $(`#law-${sid}`).value;
+  if(kind === "lines") return $(`#law-${sid}`).value.split("\n").map(x=>x.trim()).filter(Boolean);
+  if(kind === "rate"){
+    const out = [];
+    $$(`#law-${sid} tr`).forEach((tr,i)=>{
+      const w = $(`#law-${sid}-w${i}`), n = $(`#law-${sid}-n${i}`);
+      if(w && w.value.trim()) out.push({word:w.value.trim(), max_per:Number(n.value)});
+    });
+    return out;
+  }
+  return $(`#law-${sid}`).value;
+}
+
+function lawCollect(){
+  const groups = {runtime:{}, persona:{}, channel:{}};
+  const norm = (v)=>JSON.stringify(v);
+  LAW.schema.forEach(s=>{
+    // 键可能是两段（runtime.quiet_hours）也可能是三段（channel.wechat_group.delay_ms）
+    const _i = s.key.indexOf(".");
+    const g = s.key.slice(0, _i), key = s.key.slice(_i + 1);
+    const now = lawReadOne(s);
+    const old = ((LAW.values[g])||{})[key];
+    if(norm(now) !== norm(old)) groups[g][key] = now;
+  });
+  const changes = {};
+  if(Object.keys(groups.runtime).length) changes.runtime = groups.runtime;
+  if(Object.keys(groups.persona).length) changes.persona = groups.persona;
+  if(Object.keys(groups.channel).length) changes.channel = groups.channel;
+  return changes;
+}
+
+function lawDiffHtml(diff){
+  return String(diff||"").split("\n").map(l=>{
+    if(l.startsWith("+++")||l.startsWith("---")||l.startsWith("@@")) return `<span class="hd">${lawEsc(l)}</span>`;
+    if(l.startsWith("+")) return `<span class="add">${lawEsc(l)}</span>`;
+    if(l.startsWith("-")) return `<span class="del">${lawEsc(l)}</span>`;
+    return lawEsc(l);
+  }).join("\n");
+}
+
+async function lawPreview(){
+  try{
+    const changes = lawCollect();
+    if(!Object.keys(changes).length){ lawSetMsg("没有改动"); $("#law-diff-wrap").hidden = true; $("#law-commit").disabled = true; return; }
+    let diff = "", parts = [];
+    for(const target of Object.keys(changes)){
+      const res = await lawFetch("/cmd", {cmd:"set", dry_run:true, args:{target, patch:changes[target]}});
+      if(!res.ok){ lawSetMsg(res.error||"预演失败", true); $("#law-commit").disabled = true; return; }
+      if(res.noop) continue;
+      diff += res.diff; parts.push(res.summary);
+    }
+    LAW_DIFF = diff; LAW_CHANGES = changes;
+    $("#law-diff").innerHTML = lawDiffHtml(diff || "（没有实际变化）");
+    $("#law-diff-wrap").hidden = false;
+    $("#law-commit").disabled = !diff;
+    lawSetMsg(parts.join("；") || "没有实际变化");
+  }catch(e){ lawSetMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+async function lawCommit(){
+  try{
+    if(!LAW_CHANGES){ await lawPreview(); }
+    if(!LAW_CHANGES) return;
+    const done = [], ids = [];
+    for(const target of Object.keys(LAW_CHANGES)){
+      const res = await lawFetch("/cmd", {cmd:"set", dry_run:false, args:{target, patch:LAW_CHANGES[target]}});
+      if(!res.ok){ lawSetMsg("写入失败："+(res.error||""), true); return; }
+      if(res.audit_id) ids.push(res.audit_id);
+      done.push(res.audit_id ? (res.summary+"（审计 "+res.audit_id+"）") : res.summary);
+    }
+    LAW_CHANGES = null; LAW_DIFF = "";
+    $("#law-diff-wrap").hidden = true; $("#law-commit").disabled = true;
+    lawSetMsg("已写入："+done.join("；"));
+    /* 2026-10-31：写完当场给一个「撤销这次」，不用滚到最下面那条审计里去找 */
+    LAW_LAST_AUDIT = ids;
+    const undo = $("#law-undo");
+    if(undo){
+      undo.hidden = !ids.length;
+      undo.textContent = ids.length > 1 ? ("撤销这次（" + ids.length + " 项）") : "撤销这次";
+    }
+    await lawLoad();
+  }catch(e){ lawSetMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+async function lawRollback(id){
+  if(!confirm("把这条改动回滚掉？会先用现在的内容做一次新的审计。")) return;
+  try{
+    const res = await lawFetch("/cmd", {cmd:"rollback", dry_run:false, args:{audit_id:id}});
+    lawSetMsg(res.ok ? res.note : ("回滚失败："+(res.error||"")), !res.ok);
+    await lawLoad();
+  }catch(e){ lawSetMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+/* ── 主机灯 + 账号盘点（2026-10-27）── */
+function hostMsg(t, bad){
+  const el = $("#host-msg"); if(!el) return;
+  el.textContent = t || "";
+  el.style.color = bad ? "var(--bad)" : "var(--dim)";
+}
+function hostColor(ok){ return ok ? "var(--ok)" : "var(--bad)"; }
+async function hostLoad(){
+  try{
+    const r = await lawFetch("/cmd", {cmd:"svc_status"});
+    if(!r.ok){ hostMsg("执行器："+(r.error||"读不到"), true); return; }
+    const box = $("#host-lights"); if(!box) return;
+    box.innerHTML = (r.lights||[]).map(l=>{
+      const dot = `<b style="color:${hostColor(l.alive)};font-size:18px;line-height:1">●</b>`;
+      const age = l.age_text || "无心跳";
+      const extra = l.extra ? (" · "+esc(l.extra)) : "";
+      return `<span title="${esc(l.hint||"")}" style="white-space:nowrap">${dot} ${esc(l.name)} <span class="muted">pid ${l.pid||"-"} · ${esc(age)}${extra}</span></span>`;
+    }).join("");
+    const tips = [];
+    if(r.all_stop) tips.push("现在是全关状态（点「启动全部」才会跑）");
+    const sen = (r.sentinels||[]).filter(x=>x!=="all.stop");
+    if(sen.length) tips.push("有 " + sen.length + " 个关停标记没清掉（点「启动全部」会一起清）");
+    if(!r.port_open) tips.push("AI 引擎没有应答");
+    hostMsg(tips.length ? tips.join("；") : "一切正常", tips.length>0);
+  }catch(e){ hostMsg("连不上面板后端："+(e.message||e), true); }
+}
+/* 2026-10-31：长操作期间锁住四个按钮 + 说清"大概要等多久"。
+   以前点完立刻返回，按钮还亮着 —— 重复点会把 supervisor 拉起两次；
+   而"启动全部"服务端真的要等到四盏灯全绿（约 25 秒）。 */
+const HOST_BTN_IDS = ["#host-start", "#host-restart", "#host-stop", "#host-restart-engine"];
+function hostBusy(on, hint){
+  HOST_BTN_IDS.forEach(id=>{ const b = $(id); if(b) b.disabled = !!on; });
+  if(on && hint) hostMsg(hint, false);
+}
+async function hostDo(cmd, ask, waitMs){
+  if(ask && !confirm(ask)) return;
+  const ms = waitMs || 90000;
+  const t0 = Date.now();
+  hostBusy(true, "执行中…（别重复点；最多等 " + Math.round(ms/1000) + " 秒）");
+  try{
+    const r = await lawFetch("/cmd", {cmd, dry_run:false}, ms);
+    const sec = ((Date.now() - t0) / 1000).toFixed(0);
+    hostMsg((r.note || r.error || (r.ok ? "已执行" : "没成功")) + "　（用了 " + sec + " 秒）", !r.ok);
+    [800, 3000, 8000, 15000].forEach(t=>setTimeout(hostLoad, t));
+  }catch(e){
+    const sec = ((Date.now() - t0) / 1000).toFixed(0);
+    hostMsg("没等到结果（" + sec + " 秒）：" + ((e && e.message) || e), true);
+  }finally{
+    hostBusy(false);
+    hostLoad();
+  }
+}
+/* 2026-10-31：只靠颜色分不出通/不通（色盲、投影、缩放都会糊）。
+   现在颜色 + 形状 + 文字三重编码。 */
+function chLight(ok, k, v){
+  const c = ok ? "var(--ok)" : "var(--bad)";
+  return `<span style="margin-right:12px"><b style="color:${c}">${ok ? "✓ 通" : "✕ 不通"}</b> <span>${esc(k)}</span>` +
+         (v?` <span class="muted" style="font-size:12px">${esc(v)}</span>`:"") + `</span>`;
+}
+let _chPollTimer = null;
+function _chPoll(on){
+  if(on && !_chPollTimer) _chPollTimer = setInterval(chLoad, 2500);
+  if(!on && _chPollTimer){ clearInterval(_chPollTimer); _chPollTimer = null; }
+}
+async function chLoad(){
+  const msg = $("#ch-msg"), box = $("#ch-list");
+  try{
+    const r = await lawFetch("/cmd", {cmd:"channel_status"});
+    if(!r.ok){ if(msg){ msg.textContent = r.error || "读不到"; msg.style.color = "var(--bad)"; } return; }
+    if(msg){ msg.textContent = "更新于 " + (r.now || ""); msg.style.color = "var(--dim)"; }
+    const ps = r.platforms || {};
+    const html = Object.keys(ps).map(k=>{
+      const p = ps[k] || {};
+      const lights = (p.lights||[]).map(l=>chLight(!!l.ok, l.k, l.v)).join("");
+      return `<div class="row" style="gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+        <b style="min-width:44px">${esc(p.label || k)}</b>${lights}
+        <span class="muted" style="margin-left:auto;font-size:12px;max-width:46%;text-align:right;overflow-wrap:anywhere">${esc(p.hint || "")}</span></div>`;
+    }).join("");
+    if(box) box.innerHTML = html || '<div class="muted">—</div>';
+    const _q = r.qq_qr || {}, _wrap = $("#ch-qrwrap"), _img = $("#ch-qr");
+    const _qqp = (r.platforms||{}).qq || {}, _wsOn = (((_qqp.lights||[])[1]||{}).ok) === true, _note = $("#ch-qrnote");
+    if(_q.ready){ _chPoll(true); if(_note) _note.textContent = "等待扫码（过期会自动换新的）"; }
+    else {
+      _chPoll(false);
+      if(_note) _note.textContent = _wsOn ? "已登录 ✓ QQ 通道已接入，不用再点按钮" : "等二维码…";
+    }
+    if(_wrap && _img){
+      if(_q.ready){ _img.src = "/qr?t=" + _q.mtime; _wrap.style.display = "block"; }
+      else { _wrap.style.display = "none"; }
+    }
+  }catch(e){ if(msg){ msg.textContent = "连不上面板后端："+(e.message||e); msg.style.color = "var(--bad)"; } }
+}
+/* 2026-10-31：重启引擎要等新进程起好并占住端口（服务端最多等 150 秒），
+   期间锁按钮、说清在等什么；超时如实说失败，不假装成功。 */
+async function hostRestartEngine(){
+  const t0 = Date.now();
+  hostBusy(true, "正在重启 AI 引擎…（不动主程序、面板和 QQ 通道；通常 30–60 秒）");
+  try{
+    const r = await lawFetch("/cmd", {cmd:"restart_engine", dry_run:false}, 240000);
+    const sec = ((Date.now() - t0) / 1000).toFixed(0);
+    hostMsg((r && (r.note || r.error)) || (r && r.ok ? "已重启" : "没成功"), !(r && r.ok));
+    setTimeout(hostLoad, 1200);
+  }catch(e){
+    const sec = ((Date.now() - t0) / 1000).toFixed(0);
+    hostMsg("没等到结果（" + sec + " 秒）：" + ((e && e.message) || e), true);
+  }finally{
+    hostBusy(false);
+  }
+}
+
+async function chAct(name){
+  const msg = $("#ch-msg");
+  if(msg){ msg.textContent = "执行中…"; msg.style.color = "var(--dim)"; }
+  try{
+    const r = await lawFetch("/cmd", {cmd:name, args:{}});
+    if(msg){ msg.textContent = r.ok ? (r.note || "已执行") : (r.error || "失败");
+             msg.style.color = r.ok ? "#c98d82" : "var(--bad)"; }
+    // 2026-10-27：只有"打开 WebUI（调试）"才开浏览器。之前这行对所有动作生效，
+    // 而 napcat_start 的回执里带 url，等于每点一次「起 NapCat」就弹一个 WebUI 页。
+    if(name === "napcat_qr"){ const _u = r.url || r.webui; if(_u){ try{ window.open(_u, "_blank"); }catch(e){} } }
+    chLoad();
+  }catch(e){ if(msg){ msg.textContent = "连不上面板后端："+(e.message||e); msg.style.color = "var(--bad)"; } }
+}
+async function looksLoad(){
+  const msg = $("#lk-msg"), gal = $("#lk-gal"), canon = $("#lk-canon");
+  try{
+    const r = await lawFetch("/cmd", {cmd:"looks_status"});
+    if(!r.ok){ if(msg){ msg.textContent = r.error || "读不到"; msg.style.color = "var(--bad)"; } return; }
+    if(msg){
+      msg.textContent = (r.count||0) + " 张图 · " + (r.canon_chars||0) + " 字 · " + (r.slug||"")
+        + (r.canon_at ? "（那段话写于 " + r.canon_at + "）" : "");
+      msg.style.color = "var(--dim)";
+    }
+    if(canon && document.activeElement !== canon) canon.value = r.canon || "";
+    if(gal){
+      gal.innerHTML = "";
+      (r.images||[]).forEach(function(it){
+        const box = document.createElement("div");
+        box.style.cssText = "width:84px;height:84px;border-radius:1px;overflow:hidden;background:#22272b;position:relative";
+        const img = document.createElement("img");
+        img.src = "/looks/" + encodeURIComponent(r.slug||"jingjing") + "/" + encodeURIComponent(it.file);
+        img.style.cssText = "width:100%;height:100%;object-fit:cover;display:block";
+        img.title = (it.desc || it.note || it.file) + (it.bytes? "（" + Math.round(it.bytes/1024) + "KB）" : "");
+        box.appendChild(img);
+        const _x = document.createElement("div");
+        _x.textContent = "\u00d7";
+        _x.title = "\u4ece\u5979\u7684\u81ea\u6211\u8ba4\u77e5\u91cc\u79fb\u9664\u8fd9\u5f20";
+        _x.style.cssText = "position:absolute;top:3px;right:3px;width:18px;height:18px;line-height:17px;text-align:center;border-radius:50%;background:rgba(10,16,26,.78);color:#f0f1f2;font-size:14px;cursor:pointer;opacity:.55;transition:opacity .15s,background .15s;user-select:none";
+        _x.onclick = function(ev){ ev.stopPropagation(); looksDel(it.file); };
+        box.onmouseenter = function(){ _x.style.opacity = "1"; };
+        box.onmouseleave = function(){ _x.style.opacity = ".55"; _x.style.background = "rgba(10,16,26,.78)"; };
+        _x.onmouseenter = function(){ _x.style.background = "rgba(190,60,60,.92)"; };
+        _x.onmouseleave = function(){ _x.style.background = "rgba(10,16,26,.78)"; };
+        box.appendChild(_x);
+        gal.appendChild(box);
+      });
+    }
+  }catch(e){ if(msg){ msg.textContent = "连不上面板后端："+(e.message||e); msg.style.color = "var(--bad)"; } }
+}
+async function looksDel(file){
+  const msg = $("#lk-msg");
+  if(!file) return;
+  const okq = confirm("从她的自我认知里移除这张？\n\n" + file + "\n\n（文件不会真删，会改名成 .bak-时间戳，可以恢复；她读的那段自述不会自动更新）");
+  if(!okq) return;
+  if(msg){ msg.textContent = "移除中…"; msg.style.color = "var(--dim)"; }
+  try{
+    const r = await lawFetch("/cmd", {cmd:"looks_delete", file: file, dry_run:false});
+    if(!r.ok){ if(msg){ msg.textContent = r.error || "移除失败"; msg.style.color = "var(--bad)"; } return; }
+    await looksLoad();
+    if(msg){
+      msg.textContent = "已移除 · 剩 " + (r.count||0) + " 张。她读的那段里可能还提到它 —— 想让她忘掉的话，点「让她重新认一遍」（不点也不会自己变）";
+      msg.style.color = "var(--warn)";
+    }
+  }catch(e){ if(msg){ msg.textContent = "移除出错：" + (e.message||e); msg.style.color = "var(--bad)"; } }
+}
+function looksPick(){ const f = $("#lk-file"); if(f) f.click(); }
+function looksFileChange(el){
+  const list = Array.from((el && el.files) || []);
+  if(el) el.value = "";
+  if(list.length) looksSend(list);
+}
+async function looksSend(list){
+  const msg = $("#lk-msg");
+  if(msg){ msg.textContent = "上传 " + list.length + " 张…"; msg.style.color = "var(--dim)"; }
+  const files = [];
+  for(const f of list){
+    const b64 = await new Promise(function(res, rej){
+      const fr = new FileReader();
+      fr.onload = function(){ res(String(fr.result||"")); };
+      fr.onerror = rej;
+      fr.readAsDataURL(f);
+    });
+    files.push({name: f.name, data: b64});
+  }
+  try{
+    const r = await lawFetch("/cmd", {cmd:"looks_upload", files: files, dry_run:false});
+    if(!r.ok){ if(msg){ msg.textContent = r.error || "上传失败"; msg.style.color = "var(--bad)"; } return; }
+    if(msg){ msg.textContent = "进了 " + (r.added||0) + " 张" + (r.skipped_dup ? "（重复跳过 " + r.skipped_dup + "）" : "") + "，正在读图…"; msg.style.color = "var(--dim)"; }
+    await looksGen(true);
+  }catch(e){ if(msg){ msg.textContent = "上传出错："+(e.message||e); msg.style.color = "var(--bad)"; } }
+}
+async function looksSave(){
+  const msg = $("#lk-msg"), box = $("#lk-canon");
+  const text = box ? String(box.value || "").trim() : "";
+  if(!text){ if(msg){ msg.textContent = "框里是空的，没东西可存"; msg.style.color = "var(--bad)"; } return; }
+  if(text.length > 400){ if(msg){ msg.textContent = "最多 400 字（现在 " + text.length + " 字），超了引擎只读前 400 字"; msg.style.color = "var(--bad)"; } return; }
+  if(msg){ msg.textContent = "保存中…"; msg.style.color = "var(--dim)"; }
+  try{
+    const r = await lawFetch("/cmd", {cmd:"looks_setcanon", text: text});
+    if(!r.ok){ if(msg){ msg.textContent = r.error || "保存失败"; msg.style.color = "var(--bad)"; } return; }
+    if(msg){ msg.textContent = r.note || ("已保存：" + (r.canon_chars||0) + " 字，下一拍生效"); msg.style.color = "var(--ok)"; }
+    await looksLoad();
+  }catch(e){ if(msg){ msg.textContent = "保存出错：" + (e.message||e); msg.style.color = "var(--bad)"; } }
+}
+async function looksGen(silent){
+  const msg = $("#lk-msg");
+  if(!silent && msg){ msg.textContent = "让她重新认一遍…（要十几秒）"; msg.style.color = "var(--dim)"; }
+  try{
+    const r = await lawFetch("/cmd", {cmd:"looks_generate", dry_run:false});
+    if(!r.ok){ if(msg){ msg.textContent = r.error || "生成失败"; msg.style.color = "var(--bad)"; } return; }
+    if(msg){ msg.textContent = "认完了：看了 " + (r.described||0) + " 张，那段话 " + (r.canon_chars||0) + " 字（" + Math.round((r.ms||0)/1000) + "s）"; msg.style.color = "var(--ok)"; }
+    await looksLoad();
+  }catch(e){ if(msg){ msg.textContent = "生成出错："+(e.message||e); msg.style.color = "var(--bad)"; } }
+}
+setTimeout(looksLoad, 600);
+    let _spState = null;
+    async function spLoad(){
+      const box = $("#sp-body");
+      if(!box) return;
+      try{
+        const r = await lawFetch("/cmd", {cmd:"speak_policy_get"});
+        _spState = r;
+        spDraw();
+        spBlocked();
+        const m = $("#sp-msg");
+        if(m) m.textContent = (r.enabled ? "" : "（总开关 YINYUE_SPEAK_POLICY=0，当前不生效）") +
+          (r.updated_at ? " 上次保存 " + r.updated_at : " 还没配过：现在等于不限制");
+      }catch(e){
+        box.innerHTML = "";
+        const m = $("#sp-msg"); if(m) m.textContent = "读不到：" + e;
+      }
+    }
+    async function spDays(){
+      // §45 第二条：面板只列最近 8 条，翻一周得看这个（按天 + 按哪道闸）。
+      const box = $("#sp-days");
+      if(!box) return;
+      try{
+        const r = await lawFetch("/cmd", {cmd:"speak_policy_blocked_days", days:7});
+        box.textContent = "";
+        if(!r || !r.ok || r.missing){ box.textContent = "最近 7 天：还没记过（logs/blocked.jsonl 不存在）。"; return; }
+        const by = (r.by_category) || {};
+        const parts = [["allowlist","白名单"],["content","内容闸"],["outbound","外发闸"],["spont","自发闸"]]
+          .filter(kv => Number(by[kv[0]] || 0) > 0)
+          .map(kv => kv[1] + " " + by[kv[0]] + " 条");
+        const head = document.createElement("div");
+        head.style.cssText = "margin-bottom:2px";
+        head.textContent = "最近 " + String(r.days || 7) + " 天：共 " + String(r.total || 0) + " 条话被挡下来"
+          + (parts.length ? ("（" + parts.join("、") + "）") : "");
+        box.appendChild(head);
+        (r.by_day || []).slice(0, 7).forEach(d => {
+          const row = document.createElement("div");
+          row.style.cssText = "opacity:.85;margin:1px 0 1px 8px";
+          const cats = Object.keys(d.cats || {}).map(c => c + " " + d.cats[c]).join("、");
+          row.textContent = "· " + String(d.date || "") + "  " + String(d.n || 0) + " 条" + (cats ? ("（" + cats + "）") : "");
+          box.appendChild(row);
+        });
+      }catch(e){
+        box.textContent = "";
+      }
+    }
+
+    async function spBlocked(){
+      const box = $("#sp-blocked");
+      if(!box) return;
+      spDays();
+      try{
+        const r = await lawFetch("/cmd", {cmd:"speak_policy_blocked", limit:8});
+        const items = (r && r.items) || [];
+        box.textContent = "";
+        if(!items.length){ box.textContent = "最近没有话被挡下来。"; return; }
+        const head = document.createElement("div");
+        const by = (r && r.by_label) || {};
+        const sum = Object.keys(by).map(k => k + " " + by[k] + " 条").join("、");
+        head.style.cssText = "margin-bottom:2px";
+        head.textContent = "最近被挡下来的（她本想说话，被自己挡了）："
+          + (sum ? ("共 " + String((r && r.total) || 0) + " 条 —— " + sum) : "");
+        box.appendChild(head);
+        items.slice().reverse().forEach(it => {
+          const row = document.createElement("div");
+          row.style.cssText = "opacity:.85;margin:1px 0 1px 8px";
+          const who = String(it.name || it.chat_id || "");
+          const txt = it.hidden ? "（正文不记：属于内容闸）" : ("「" + String(it.text || "").slice(0, 40) + "」");
+          row.textContent = "· " + (it.at || "") + "  " + who + "  " + txt + "（" + (it.label || it.why || "") + "）";
+          if(String(it.why || "") === "not_in_allowlist"){
+            const btn = document.createElement("button");
+            btn.textContent = "加进白名单";
+            btn.style.cssText = "margin-left:6px;font-size:12px";
+            btn.onclick = async () => {
+              btn.disabled = true;
+              btn.textContent = "正在加…";
+              const res = await lawFetch("/cmd", {cmd:"speak_policy_add", args:{chat_id: it.chat_id, name: who}});
+              if(res && res.ok){ btn.textContent = "已加入"; spLoad(); spBlocked(); }
+              else { btn.disabled = false; btn.textContent = "加不了：" + String((res && (res.error || res.note)) || "?"); }
+            };
+            row.appendChild(btn);
+          }
+          box.appendChild(row);
+        });
+      }catch(e){
+        box.textContent = "";
+      }
+    }
+    function spDraw(){
+      const box = $("#sp-body");
+      if(!box || !_spState) return;
+      box.innerHTML = "";
+      (_spState.platforms || []).forEach(pl => {
+        const ph = document.createElement("div");
+        ph.style.cssText = "margin:10px 0 4px;font-weight:600;font-size:12px";
+        ph.textContent = (pl.label || pl.key) + " · " + pl.key;
+        box.appendChild(ph);
+        (pl.accounts || []).forEach(ac => {
+          const wrap = document.createElement("div");
+          wrap.style.cssText = "border:1px solid rgba(255,255,255,.08);border-radius:1px;padding:8px 10px;margin:6px 0";
+          const hd = document.createElement("div");
+          hd.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:6px";
+          const nm = document.createElement("div");
+          nm.style.cssText = "font-size:12px";
+          nm.textContent = ac.account_id + "（" + ac.n_allowed + "/" + ac.n_chats + " 可说话）";
+          hd.appendChild(nm);
+          const sel = document.createElement("select");
+          sel.style.cssText = "margin-left:auto;font-size:12px;background:#13171b;color:#e6ece9;border:1px solid rgba(255,255,255,.12);border-radius:1px;padding:2px 6px";
+          [["allowlist","白名单（只名单里的）"],["all","全部允许"],["none","全部禁止"]].forEach(pair => {
+            const o = document.createElement("option");
+            o.value = pair[0]; o.textContent = pair[1];
+            if(ac.mode === pair[0]) o.selected = true;
+            sel.appendChild(o);
+          });
+          sel.onchange = () => {
+            ac.mode = sel.value;
+            if(sel.value !== "allowlist") ac.chats.forEach(c => { c.allowed = (sel.value === "all"); });
+            spDraw();
+          };
+          hd.appendChild(sel);
+          wrap.appendChild(hd);
+          const list = document.createElement("div");
+          list.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;max-height:200px;overflow:auto";
+          const _q = (($("#sp-q") || {}).value || "").trim().toLowerCase();
+          const _hit = c => !_q || ((c.name || "") + " " + (c.chat_id || "")).toLowerCase().indexOf(_q) >= 0;
+          const _show = c => _hit(c) && (_q || c.allowed || Number(c.n) > 0 || ac._spAll);
+          const _rows = ac.chats.filter(_show);
+          const _hid = ac.chats.length - _rows.length;
+          _rows.forEach(c => {
+            const lab = document.createElement("label");
+            lab.style.cssText = "font-size:12px;display:flex;gap:4px;align-items:center;padding:2px 6px;border-radius:1px;background:rgba(255,255,255,.04);cursor:pointer";
+            const cb = document.createElement("input");
+            cb.type = "checkbox"; cb.checked = !!c.allowed;
+            cb.onchange = () => { c.allowed = cb.checked; };
+            const t = document.createElement("span");
+            t.textContent = (c.is_group ? "群 " : "") + (c.name || c.chat_id) + " · " + c.n;
+            t.title = c.chat_id + " ｜ 最后 " + c.last_at;
+            lab.appendChild(cb); lab.appendChild(t);
+            list.appendChild(lab);
+          });
+          wrap.appendChild(list);
+          if(_hid > 0 || ac._spAll){
+            const more = document.createElement("div");
+            more.style.cssText = "font-size:12px;color:#909ba5;cursor:pointer;margin-top:4px";
+            more.textContent = ac._spAll ? "收起没聊过的联系人" : ("还有 " + _hid + " 个没聊过的联系人 —— 点这里展开");
+            more.onclick = () => { ac._spAll = !ac._spAll; spDraw(); };
+            wrap.appendChild(more);
+          }
+          const prow = document.createElement("div");
+          prow.style.cssText = "margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center";
+          const ptip = document.createElement("span");
+          ptip.style.cssText = "font-size:12px;color:var(--dim)";
+          ptip.textContent = ac.chats.some(c => c.allowed) ? "可主动开口：" : "可主动开口：（先勾选允许说话的会话）";
+          prow.appendChild(ptip);
+          ac.chats.filter(c => c.allowed).forEach(c => {
+            const chip = document.createElement("button");
+            chip.className = "btn small";
+            chip.style.cssText = "font-size:12px;padding:2px 8px;border-radius:999px" + (c.proactive ? ";border-color:var(--ok);color:var(--ok)" : "");
+            chip.textContent = (c.proactive ? "✓ " : "") + (c.name || c.chat_id);
+            chip.title = c.proactive ? "点一下改成只回应" : "点一下允许她自己找你说话";
+            chip.onclick = () => { c.proactive = !c.proactive; spDraw(); };
+            prow.appendChild(chip);
+          });
+          wrap.appendChild(prow);
+          box.appendChild(wrap);
+        });
+      });
+    }
+    async function spFind(){
+      const box = $("#sp-found");
+      if(!box) return;
+      const q = (($("#sp-q") && $("#sp-q").value) || "").trim();
+      if(!q){ box.textContent = "先在上面那个框里填个名字或微信号，再点「搜全部会话」。"; return; }
+      box.textContent = "在翻所有账号的通讯录和聊天记录…";
+      const r = await lawFetch("/cmd", {cmd:"speak_policy_search", args:{q: q, limit: 20}});
+      box.textContent = "";
+      if(!r || !r.ok){ box.textContent = "搜不了：" + String((r && r.error) || "不知道原因"); return; }
+      const items = r.items || [];
+      if(!items.length){ box.textContent = "没找到「" + q + "」—— 名字/备注里没有，聊天记录里也没有这个会话。"; return; }
+      const head = document.createElement("div");
+      head.textContent = "「" + q + "」搜到 " + String(r.total || items.length) + " 个（点「加进来」立即写进白名单，不用再点保存）：";
+      box.appendChild(head);
+      items.forEach(it => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:6px;align-items:center;margin:1px 0 1px 8px;opacity:.9";
+        const t = document.createElement("span");
+        t.textContent = "· " + (it.is_group ? "群 " : "") + String(it.name || it.chat_id)
+          + " · " + String(it.n || 0) + (it.allowed ? "（已在名单里）" : "");
+        t.title = String(it.chat_id) + " ｜ " + String(it.platform) + "/" + String(it.account_id)
+          + " ｜ 最后 " + String(it.last_at || "没聊过");
+        row.appendChild(t);
+        if(!it.allowed){
+          const btn = document.createElement("button");
+          btn.textContent = "加进来";
+          btn.style.cssText = "font-size:12px";
+          btn.onclick = async () => {
+            btn.disabled = true;
+            btn.textContent = "正在加…";
+            const res = await lawFetch("/cmd", {cmd:"speak_policy_add",
+              args:{chat_id: it.chat_id, name: String(it.name || ""), platform: String(it.platform || "")}});
+            if(res && res.ok){ btn.textContent = "已加入"; spLoad(); spBlocked(); }
+            else { btn.disabled = false; btn.textContent = "加不了：" + String((res && (res.error || res.note)) || "?"); }
+          };
+          row.appendChild(btn);
+        }
+        box.appendChild(row);
+      });
+    }
+
+    async function spSave(){
+      if(!_spState) return;
+      const accounts = [];
+      const pro = [];
+      (_spState.platforms || []).forEach(pl => (pl.accounts || []).forEach(ac => {
+        accounts.push({platform: pl.key, account_id: ac.account_id, mode: ac.mode,
+                       allowed: ac.chats.filter(c => c.allowed).map(c => c.chat_id)});
+        pro.push({platform: pl.key, account_id: ac.account_id,
+                  proactive: ac.chats.filter(c => c.allowed && c.proactive).map(c => c.chat_id)});
+      }));
+      const r = await lawFetch("/cmd", {cmd:"speak_policy_set", accounts: accounts, dry_run: false,
+                                        args:{expect_mtime: Number((_spState && _spState.mtime) || 0)}});
+      if(r && r.ok){ await lawFetch("/cmd", {cmd:"speak_policy_proactive", accounts: pro, dry_run: false}); }
+      const m = $("#sp-msg");
+      if(!r.ok && r.stale && m){ spLoad(); }
+      if(m) m.textContent = r.ok ? (r.note || "已保存") : ("保存失败：" + (r.error || ""));
+      await spLoad();
+    }
+    async function spSeed(){
+      const r = await lawFetch("/cmd", {cmd:"speak_policy_seed", days: 30, dry_run: false});
+      const m = $("#sp-msg");
+      if(m) m.textContent = r.ok ? (r.note || "已初始化") : ("失败：" + (r.error || ""));
+      await spLoad();
+    }
+    async function acctLoad(){
+  const msg = $("#acct-msg");
+  try{
+    const r = await lawFetch("/cmd", {cmd:"account_list"});
+    if(!r.ok){ if(msg){ msg.textContent = r.error || "读不到"; msg.style.color = "var(--bad)"; } return; }
+    if(msg){ msg.textContent = (r.rows||[]).length + " 个账号"; msg.style.color = "var(--dim)"; }
+    // 名字先落地：否则第一次渲染时 role 标签还是空名字（2026-10-27）
+    if(r.self_name) selfNameSet(r.self_name);
+    const box = $("#acct-list");
+    const rows = (r.rows||[]).map(a=>{
+      const p = a.probe || {};
+      const ok = !!(p.dir_exists && p.db_exists && !p.error);
+      const last = p.last_at ? String(p.last_at).slice(0,16) : "无消息";
+      const nb = (p.messages==null) ? "-" : p.messages;
+      return `<div class="row" style="gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+        <b style="color:${hostColor(ok)}">●</b><b>${esc(a.platform)}</b>
+        <b title="从 ${esc(a.platform)} 的 contacts 里读到的账号名，同步于 ${esc(a.display_name_at||"未知时间")}">${esc(a.display_name || "（名字未同步）")}${a.display_name_age?`<span class="muted" style="font-size:10px;font-weight:400"> · ${esc(a.display_name_age)}</span>`:""}</b>
+        <code class="muted" style="font-size:12px">${esc(a.account_id)}</code>
+        <span class="muted">role=${esc(roleLabel(a.role))} · ${a.enabled?"启用":"停用"} · 消息 ${nb} · 最后 ${esc(last)}</span>${acctOps(a)}</div>`;
+    }).join("");
+    if(box) box.innerHTML = rows || '<div class="muted">还没有登记任何账号</div>';
+    acctBanner(r);
+    chLoad();
+        spLoad();
+    if(r.note && msg){ msg.textContent = r.note; msg.style.color = "#c98d82"; }
+  }catch(e){ if(msg){ msg.textContent = "连不上面板后端："+(e.message||e); msg.style.color = "var(--bad)"; } }
+}
+
+let SELF_NAME = "";
+function selfNameSet(name){
+  const nm = String(name||"").trim(); if(!nm) return;
+  SELF_NAME = nm;
+  const op = $("#acct-role-self"); if(op) op.textContent = nm + "（AI 自己）";
+  const brand = $("#brand-name"); if(brand) brand.textContent = nm;
+  try{ document.title = nm + " · 控制台"; }catch(e){}
+}
+function roleLabel(role){
+  const r = String(role||"");
+  if(r === "yinyue") return SELF_NAME || "yinyue";
+  if(r === "owner") return "她服务的人";
+  if(r === "guest") return "其他人";
+  return r || "?";
+}
+function acctForm(){
+  const v = (id)=>{ const e=$(id); return e ? String(e.value||"").trim() : ""; };
+  return {platform:v("#acct-platform"), account_id:v("#acct-id"), data_dir:v("#acct-dir"), role:v("#acct-role")};
+}
+function acctFmsg(text, bad){
+  const m=$("#acct-form-msg"); if(!m) return;
+  m.textContent = text||""; m.style.color = bad ? "var(--bad)" : "var(--dim)";
+}
+function acctDescribe(r){
+  const p = (r&&r.probe) || {}; const bits = [];
+  if(p.account_id) bits.push(`${p.platform}/${p.account_id}  role=${p.role||"（未填）"}`);
+  if(p.account_id) bits.push(`目录 ${p.dir_exists?"在":"不在"} · 库 ${p.db_exists?"在":"不在"} · 消息 ${p.messages==null?"-":p.messages} · 最后 ${p.last_at?String(p.last_at).slice(0,16):"无"}`);
+  (p.warnings||[]).forEach(w=>bits.push("⚠ "+w));
+  (p.errors||[]).forEach(w=>bits.push("✗ "+w));
+  if(r&&r.note) bits.push(r.note);
+  if(r&&r.error) bits.push("✗ "+r.error);
+  return bits.join("；") || "（没有回执）";
+}
+function acctBanner(r){
+  const box=$("#acct-banner"); if(!box) return;
+  const rows=(r&&r.rows)||[], owners=(r&&r.owners)||[];
+  let text="";
+  if(!rows.length) text="这是第一次用：下面填「平台 + 账号 ID」就够了，数据目录留空会自动填。";
+  else if(!owners.length) text="还没有 owner —— 「她服务的人」是谁，得在这里指一个（role 选 owner）。";
+  else {
+    const per={}; rows.forEach(a=>{ if(String(a.role||"")==="owner"){ const k=String(a.platform||"?"); (per[k]=per[k]||[]).push(a.account_id); } });
+    const dup=Object.keys(per).filter(k=>per[k].length>1);
+    if(dup.length) text="同一平台有多个 owner（"+dup.map(k=>k+" = "+per[k].join("、")).join("；")+"）—— 该平台取哪条不确定，建议每平台一个。";
+  }
+  if(!text){ box.style.display="none"; box.textContent=""; return; }
+  box.style.display=""; box.textContent=text; box.style.color="#c98d82";
+}
+function acctOps(a){
+  const id=String(a.account_id||"").replace(/'/g,"");
+  const pl=String(a.platform||"").replace(/'/g,"");
+  const dd=String(a.data_dir||"").replace(/'/g,"");
+  const rl=String(a.role||"").replace(/'/g,"");
+  const en=a.enabled?1:0;
+  return `<span style="margin-left:auto;display:flex;gap:6px">
+    <button class="btn small" onclick="acctToggle('${id}','${pl}','${dd}','${rl}',${en})">${en?"停用":"启用"}</button>
+    <button class="btn small" onclick="acctRemove('${id}')">移除</button></span>`;
+}
+async function acctToggle(id, platform, data_dir, role, enabled){
+  const to = enabled ? 0 : 1;
+  if(!confirm(`把 ${id} 改成${to?"启用":"停用"}？`)) return;
+  try{
+    const r = await lawFetch("/cmd", {cmd:"account_save", args:{platform, account_id:id, data_dir, role, enabled:to, confirm:true}});
+    const m=$("#acct-msg"); if(m){ m.textContent = r.ok ? (r.note||"已改") : (r.error||"失败"); m.style.color = r.ok ? "#c98d82" : "var(--bad)"; }
+    if(r.ok) acctLoad();
+  }catch(e){ acctFmsg("连不上面板后端："+(e.message||e), true); }
+}
+async function acctRemove(id){
+  if(!confirm(`把 ${id} 从登记表移除？（数据目录不动，且会先备份整表）`)) return;
+  try{
+    const r = await lawFetch("/cmd", {cmd:"account_remove", args:{account_id:id, confirm:true}});
+    const m=$("#acct-msg"); if(m){ m.textContent = r.ok ? (r.note||"已移除") : (r.error||"失败"); m.style.color = r.ok ? "#c98d82" : "var(--bad)"; }
+    if(r.ok) acctLoad();
+  }catch(e){ acctFmsg("连不上面板后端："+(e.message||e), true); }
+}
+async function acctProbe(){
+  acctFmsg("探测中…");
+  try{
+    const r = await lawFetch("/cmd", {cmd:"account_probe", args:acctForm()});
+    acctFmsg(acctDescribe(r), !r.ok);
+  }catch(e){ acctFmsg("连不上面板后端："+(e.message||e), true); }
+}
+async function acctSave(){
+  const args = acctForm();
+  if(!args.account_id){ acctFmsg("先填账号 ID", true); return; }
+  acctFmsg("预演中…");
+  let r;
+  try{ r = await lawFetch("/cmd", {cmd:"account_save", args:Object.assign({}, args, {confirm:false})}); }
+  catch(e){ acctFmsg("连不上面板后端："+(e.message||e), true); return; }
+  acctFmsg(acctDescribe(r), !r.ok);
+  if(!r.ok) return;
+  if(!confirm("要写入登记表吗？\n\n"+acctDescribe(r)+"\n\n（会先备份整张表；改完要重启才生效）")) return;
+  acctFmsg("写入中…");
+  try{ r = await lawFetch("/cmd", {cmd:"account_save", args:Object.assign({}, args, {confirm:true})}); }
+  catch(e){ acctFmsg("连不上面板后端："+(e.message||e), true); return; }
+  acctFmsg(acctDescribe(r), !r.ok);
+  if(r.ok) acctLoad();
+}
+
+async function lawRestart(){
+  try{
+    const res = await lawFetch("/cmd", {cmd:"restart_engine"});
+    lawSetMsg(res.note || (res.ok ? "已请求重启" : res.error), !res.ok);
+  }catch(e){ lawSetMsg("连不上面板后端："+(e.message||e), true); }
+}
+
+/* 2026-10-31：原来只画 12 条、也不说为什么只有 12 条 —— 第 13 次改动就再也点不到回滚。
+   现在后端一次给 80 条，前端默认露 8 条，其余按需展开。 */
+let LAW_AUDIT_OPEN = false, LAW_LAST_AUDIT = [];
+const LAW_AUDIT_PEEK = 8;
+
+function renderLawAudit(){
+  const box = $("#law-audit"); if(!box || !LAW) return;
+  const rows = LAW.audit || [];
+  if(!rows.length){ box.innerHTML = '<div class="muted">还没有改动</div>'; return; }
+  const show = LAW_AUDIT_OPEN ? rows : rows.slice(0, LAW_AUDIT_PEEK);
+  const cap = LAW.audit_cap || 0;
+  const more = rows.length > LAW_AUDIT_PEEK;
+  const head = '<div class="row" style="justify-content:space-between;margin-bottom:6px">'
+    + '<span class="muted" style="font-size:12.5px">最近 ' + rows.length + ' 条改动'
+    + (cap && rows.length >= cap ? '（只读到最近 ' + cap + ' 条，更早的在 data/console/audit-*.jsonl）' : '')
+    + '</span>'
+    + (more ? '<button class="btn small" onclick="lawAuditToggle()">'
+        + (LAW_AUDIT_OPEN ? ('只看最近 ' + LAW_AUDIT_PEEK + ' 条') : ('展开全部 ' + rows.length + ' 条'))
+        + '</button>' : '')
+    + '</div>';
+  box.innerHTML = head + show.map(a=>`
+    <div class="arow">
+      <div class="t">${lawEsc((a.at||"").slice(5,16))}</div>
+      <div class="s">${lawEsc(a.summary||a.cmd||"")}
+        ${a.cmd==="set"?"":`<span class="muted"> · ${lawEsc(a.cmd)}</span>`}</div>
+      <div class="ops">${a.undoable?`<button class="btn small" onclick="lawRollback('${a.id}')">回滚</button>`:""}</div>
+    </div>`).join("");
+}
+
+function lawAuditToggle(){ LAW_AUDIT_OPEN = !LAW_AUDIT_OPEN; renderLawAudit(); }
+
+async function lawUndoLast(){
+  const ids = (LAW_LAST_AUDIT || []).slice().reverse();
+  if(!ids.length) return;
+  if(!confirm("把刚才那次写入撤销掉？\n\n会用现在的内容做一次新的审计，历史不删。")) return;
+  const bad = [];
+  for(const id of ids){
+    try{
+      const res = await lawFetch("/cmd", {cmd:"rollback", dry_run:false, args:{audit_id:id}});
+      if(!res.ok) bad.push(res.error || "失败");
+    }catch(e){ bad.push((e && e.message) || e); }
+  }
+  LAW_LAST_AUDIT = [];
+  const undo = $("#law-undo"); if(undo) undo.hidden = true;
+  lawSetMsg(bad.length ? ("撤销没做完：" + bad.join("；")) : "已撤销刚才那次写入", bad.length > 0);
+  await lawLoad();
+}
+
+async function lawLoad(){
+  try{
+    const res = await lawFetch("/law");
+    if(!res.ok){ lawSetMsg("面板后端返回错误："+(res.error||""), true); return; }
+    LAW = res;
+    // /law 不带卡正文（只有 schema/values/audit），整块正文要单独问一次 card_show
+    const _nm = (res.values && res.values.card) || "";
+    if(_nm){
+      try{
+        const cs = await lawFetch("/cmd", {cmd:"card_show", name:_nm});
+        if(cs && cs.ok) LAW.card = cs;
+      }catch(e2){ /* 拿不到就按空卡显示，下面会提示 */ }
+    }
+    renderLaw(); lawSetMsg("");
+    $("#law-status").textContent = "执行器在线 · " + ((res.now||"").slice(11,19) || "");
+  }catch(e){
+    $("#law-status").textContent = "执行器没在跑";
+    lawSetMsg("连不上面板后端（它可能没在跑）：双击桌面「鲸鲸」可以重开面板。", true);
+  }
+}
+
+document.querySelectorAll(".navbtn").forEach(b=>{
+  if(b.dataset.room==="config") b.addEventListener("click", ()=>{ lawLoad(); hostLoad(); acctLoad(); cardsLoad(); });
+  if(b.dataset.room==="try") b.addEventListener("click", ()=>{ tryModelsLoad(); });
+});
+$("#law-preview").onclick = lawPreview;
+$("#law-commit").onclick = lawCommit;
+$("#law-restart").onclick = lawRestart;
+$("#card-new").onclick = cardNew;
+$("#pc-x").onclick = pcClose;
+$("#pc-save").onclick = pcSave;
+$("#pc-switch").onclick = pcSwitch;
+$("#pc-as").onclick = pcSaveAs;
+$("#card-mask").addEventListener("click", (e)=>{ if(e.target && e.target.id === "card-mask") pcClose(); });
+document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") pcClose(); });
+/* 2026-10-31：弹窗打开时 Tab 不该跑到后面的房间里去 */
+document.addEventListener("keydown", function(e){
+  if(e.key !== "Tab") return;
+  const mask = $("#card-mask"); if(!mask || mask.hidden) return;
+  const all = mask.querySelectorAll('button, input, textarea, select, [tabindex]:not([tabindex="-1"])');
+  const list = Array.prototype.filter.call(all, el=>!el.disabled && el.offsetParent !== null);
+  if(!list.length) return;
+  const first = list[0], last = list[list.length - 1];
+  if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+}, true);
+$("#voice-save").onclick = voiceSave;
+$("#voice-play").onclick = voicePlay;
+$("#host-start").onclick = ()=>hostDo("svc_start", "", 120000);
+$("#host-restart").onclick = ()=>hostDo("svc_restart", "重启＝先全部停掉再重新起来，通常 30–60 秒。\n\n这期间她不在线，微信里不会有人回你。要继续吗？", 300000);
+$("#host-stop").onclick = ()=>hostDo("svc_stop", "停止＝主程序、AI 引擎、发送工全部关掉。\n\n她会离线：微信里发消息不会有人回，直到你再点「启动全部」。要继续吗？", 120000);
+$("#acct-probe").onclick = acctProbe;
+$("#acct-save").onclick = acctSave;
+hostLoad(); acctLoad(); cardsLoad();
+
+
+
+/* 首屏拉一份体检（放在最后：let 变量此时已初始化，避免 TDZ） */
+checkupLoad(false);
+tryModelsLoad();      // 试衣间的模型候选（只读，一次就够）
+</script>
+<script>
+(function(){
+  var box=document.getElementById("sayrate-body");
+  var at=document.getElementById("sayrate-at");
+  if(!box){return;}
+  function esc(x){return String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;");}
+  function draw(){
+    fetch("/state?t="+Date.now()).then(function(r){return r.json();}).then(function(s){
+      var d=(s&&s.say_stats)||null;
+      if(!d||!d.say){box.textContent="今天还没开过口";if(at){at.textContent="";}return;}
+      var parts=["总开口 "+d.say,"发出去 "+d.sent,"被拦 "+d.blocked,"失败 "+(d.error+d.failed)];
+      var html=parts.map(function(x){return "<span style=\"margin-right:14px\">"+esc(x)+"</span>";}).join("");
+      if(d.reasons&&d.reasons.length){html+="<div style=\"margin-top:6px;font-size:12px;color:#8b959d\">原因："+d.reasons.map(function(x){return esc(x.reason)+" ×"+x.n;}).join(" ｜ ")+"</div>";}
+      box.innerHTML=html;
+      if(at){at.textContent=" · 最后一条 "+(d.last_at||"—");}
+    }).catch(function(){});
+  }
+  draw();setInterval(draw,5000);
+})();
+</script>
+<script>
+/* 2026-10-28 追加：能力条 + 账本明细（独立轮询，不改原有渲染） */
+(function(){
+  if (window.__capsLedgerInit) return; window.__capsLedgerInit = 1;
+  function mk(id, html){ var d=document.createElement("div"); d.id=id; d.innerHTML=html; return d; }
+  function esc(s){ return String(s==null?"":s).replace(/[&<>]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c]; }); }
+  function capsBox(){
+    var room = document.getElementById("room-config");
+    var box = document.getElementById("caps-line");
+    if(!room) return null;
+    if(!box){ box = mk("caps-line", ""); box.style.cssText = "margin:10px 0 14px;font-size:12px;line-height:1.7;color:#b8c2c9"; room.insertBefore(box, room.firstChild); }
+    return box;
+  }
+  function drawCaps(caps){
+    var box = capsBox(); if(!box) return;
+    if(!caps || !caps.length){ box.textContent = "能力：还没有 capabilities.json（跑一次 db/wechat_keyring.py）"; return; }
+    var html = caps.map(function(c){
+      return "能力 · " + esc(c.platform) + "/" + esc(c.account) + "　可用 " + (c.ok||[]).length + " 项"
+        + "　降级：" + esc((c.degraded||[]).join("、") || "无")
+        + "　<span style=\"color:#7f888f\">探测于 " + esc(c.probed_at) + "</span>";
+    }).join("<br>");
+    box.innerHTML = html;
+  }
+  /* 2026-11-01（切换即删）：原来的 ledgerBox/drawLedger 读 `ledger.rows`，
+     而采集器的 `_ledger()` 根本没有这个键（只有 `says`），于是那个盒子永远显示
+     "今天还没有开口记录"；内容又和「最近开口」卡重复 —— 一并删掉。 */
+  function tick(){
+    fetch("/state?t=" + Date.now()).then(function(r){ return r.json(); }).then(function(s){ drawCaps(s.caps); }).catch(function(){});
+  }
+  tick(); setInterval(tick, 8000);
+})();
+
+/* 2026-11-01（切换即删）：原来这里挂着一块对账盒，读 /state 的 delivery
+   字段，把 24 小时对账再画一遍。它和「账」房的「最近开口」卡是同一份数据、
+   同一份 15 秒缓存，只是把 verdict 换个中文词 —— 面板上一处就够。
+   delivery 字段与这块一起删掉，每轮少传 20KB。 */
+</script>
+
+<script>
+/* 投递队列卡（2026-10-28）：独立脚本 + 自建 DOM，不改动既有页面结构。
+   数据来自 /state 的 queue 字段（collector_ext.queue_state）。 */
+function __queueInit(){
+  if (window.__queueReady) return; window.__queueReady = true;
+
+  function colorOf(st){
+    if (st === "sent") return "var(--ok)";
+    if (st === "sending") return "#909ba5";
+    if (st === "pending") return "#d19761";
+    if (st === "failed") return "var(--bad)";
+    return "var(--dim)";
+  }
+  function h(s){
+    return String(s == null ? "" : s).replace(/[&<>]/g, function(c){
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;"}[c];
+    });
+  }
+  function ageTxt(s){
+    s = Number(s || 0);
+    if (s < 60) return Math.round(s) + " 秒";
+    if (s < 3600) return Math.round(s / 60) + " 分钟";
+    return (s / 3600).toFixed(1) + " 小时";
+  }
+  function ensure(){
+    var room = document.getElementById("room-voice");
+    if (!room) return null;
+    var box = document.getElementById("queue-box");
+    if (box) return box;
+    var card = document.createElement("div");
+    card.className = "card";
+    card.id = "queue-box";
+    card.innerHTML = '<div class="hd">待发消息 · 每一句话的去向<span id="queue-at" style="font-weight:400;font-size:11.5px;color:var(--dim2)"></span></div>'
+      + '<div style="color:var(--dim);font-size:12px;margin-bottom:8px">pending 排队中 / sending 正在发 / sent 已发出 / failed 发失败 / expired 过期；括号里是卡住的原因</div>'
+      + '<div id="queue-body" style="font:12px/1.7 ui-monospace,Consolas,monospace;color:var(--dim)">…</div>';
+    var anchor = document.getElementById("voice-pipe");
+    if (anchor && anchor.parentNode === room) room.insertBefore(card, anchor.nextSibling);
+    else room.insertBefore(card, room.firstChild);
+    return card;
+  }
+  function draw(q){
+    var box = ensure(); if (!box) return;
+    var qb = document.getElementById("queue-body");
+    var at = document.getElementById("queue-at");
+    if (at) at.textContent = new Date().toLocaleTimeString("zh-CN", {hour12:false});
+    if (!q || q.ok === false){ qb.textContent = "队列读不到：" + ((q && (q.err || q.error)) || "?"); return; }
+    var n = q.n || 0;
+    if (!n){ qb.textContent = "队列是空的（还没有任何投递意图进队）。"; return; }
+    var head = "共 " + n + " 条　"
+      + '<span style="color:' + colorOf("pending") + '">pending ' + (q.pending||0) + "</span>　"
+      + '<span style="color:' + colorOf("sending") + '">sending ' + (q.sending||0) + "</span>　"
+      + '<span style="color:' + colorOf("sent") + '">sent ' + (q.sent||0) + "</span>　"
+      + '<span style="color:' + colorOf("failed") + '">failed ' + (q.failed||0) + "</span>　"
+      + '<span style="color:var(--dim)">expired ' + (q.expired||0) + " / skipped " + (q.skipped||0) + "</span>";
+    var rows = (q.rows || []).map(function(r){
+      var st = String(r.state || "");
+      var ack = r.ack ? " · ack=" + r.ack : "";
+      var att = Number(r.attempts || 0) > 1 ? " · 试" + r.attempts + "次" : "";
+      var why = r.why ? ' <span style="color:var(--warn)">（' + h(r.why) + '）</span>' : "";
+      return '<div style="margin-top:2px"><span style="color:var(--dim)">#' + r.id + "</span> "
+        + '<span style="color:' + colorOf(st) + '">' + st + "</span> "
+        + '<span style="color:var(--dim)">' + ageTxt(r.age_s) + "前</span> "
+        + '<span style="color:#d2d7db">' + h(r.chat) + "</span> "
+        + '<span style="color:var(--dim)">' + h(r.preview) + "</span>" + ack + att + why + "</div>";
+    }).join("");
+    qb.innerHTML = head + rows;
+  }
+  function tick(){
+    try{
+      if (typeof STATE !== "undefined" && STATE && STATE.queue){ draw(STATE.queue); return; }
+    }catch(_e){}
+    fetch("/state?t=" + Date.now()).then(function(r){ return r.json(); })
+      .then(function(s){ draw(s && s.queue); }).catch(function(){});
+  }
+  setTimeout(function(){
+    var host = document.querySelector('[data-room="voice"]');
+    if (host) host.addEventListener("click", function(){ setTimeout(tick, 200); });
+    tick(); setInterval(tick, 3000);
+  }, 800);
+}
+if (document.readyState !== "loading") __queueInit();
+else document.addEventListener("DOMContentLoaded", __queueInit);
+</script>
+</body></html>

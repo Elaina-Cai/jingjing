@@ -1,0 +1,16 @@
+# 鲸鲸 · 开发与测试依赖
+#
+#     pip install -r requirements-dev.txt
+#
+# 注意: 日常回归测试**不依赖** pytest，且 pytest 在本仓库被刻意配置为
+#   **不收集任何用例**（见 pyproject.toml 的 [tool.pytest.ini_options] 及其中说明）。
+#
+#   tests/ 下的用例是独立可执行脚本（约定 def main() -> bool），
+#   唯一受支持的跑法：
+#       python scripts/run_all_tests.py
+#   不要用 pytest 跑 tests/ —— 那个 runner 会给日志/trace 改道做隔离，
+#   直接 pytest 收集会把测试夹具写进 logs/ 的真实 trace。
+
+pytest>=8.0                       # 仅供另建独立目录写临时 pytest 用例时使用
+pytest-asyncio>=0.24              # 项目有 async 代码，异步用例需要
+ruff>=0.6                         # 静态检查（当前仓库尚无 lint 配置，见 README 已知工程债）

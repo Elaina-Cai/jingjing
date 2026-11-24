@@ -1,0 +1,76 @@
+# ============================================================
+#  行尾与二进制处理规则
+# ============================================================
+#  背景（2026-09-27）：此前仓库只靠本机 core.autocrlf=true 控制行尾，
+#  换一台机器或改配置行为就变，且每次 add/commit 都刷
+#  "LF will be replaced by CRLF" 警告。用 .gitattributes 把它固化成
+#  随仓库走的规则，任何人 clone 下来行为一致。
+#
+#  原则：仓库内一律存 LF；工作区里除 Windows 批处理外也用 LF。
+# ============================================================
+
+# 默认：由 git 自动判断文本/二进制，文本统一按 LF 存
+* text=auto
+
+# ---------- 必须是 CRLF 的（Windows 批处理被 cmd 解析，LF 会出问题）----------
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# ---------- 源码与文本：仓库与工作区均 LF ----------
+*.py     text eol=lf
+*.pyw    text eol=lf
+*.toml   text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.json   text eol=lf
+*.jsonl  text eol=lf
+*.md     text eol=lf
+*.txt    text eol=lf
+*.ini    text eol=lf
+*.cfg    text eol=lf
+*.html   text eol=lf
+*.css    text eol=lf
+*.js     text eol=lf
+*.vue    text eol=lf
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+
+# 无扩展名的文本文件（落到 * text=auto 则没有显式 eol，仍会刷 CRLF 警告）
+requirements.lock text eol=lf
+*.lock            text eol=lf
+Makefile          text eol=lf
+Dockerfile        text eol=lf
+
+# ---------- 二进制：禁止任何行尾/编码转换 ----------
+*.exe   binary
+*.dll   binary
+*.pyd   binary
+*.so    binary
+*.lib   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.bmp   binary
+*.ico   binary
+*.svg   binary
+*.wav   binary
+*.mp3   binary
+*.m4a   binary
+*.mp4   binary
+*.zip   binary
+*.7z    binary
+*.tar   binary
+*.gz    binary
+*.db    binary
+*.npy   binary
+*.npz   binary
+*.pt    binary
+*.pth   binary
+*.ckpt  binary
+*.onnx  binary
+
+# ---------- 语言统计时排除（避免自动生成物污染 GitHub Linguist 统计）----------
+web/frontend/dist/** linguist-generated
+web/frontend/node_modules/** linguist-vendored

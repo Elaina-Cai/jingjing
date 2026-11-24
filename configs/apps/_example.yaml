@@ -1,0 +1,28 @@
+# 配方的唯一模板：一个文件 = 一条配方（docs/decisions/软件适配器.md §13.20）
+#
+# 生效要过两道闸：这个文件里写 `enabled: true`，**并且**有东西去调
+# `recipe.enabled_recipes()`（今天只有测试在调——还没有配方执行器）。
+# 文件名以下划线开头不会被加载，这个文件就是模板本身。
+#
+# 每步都必须有 `expect`（凭什么算成功）。没有 expect 的步骤等于「永远成功」，
+# 是假绿的源头，所以这里不给默认值。
+#
+# target 的语义由 backend 决定：CDP 是 CSS 选择器，UIA 是控件名。
+name: demo_reader            # 小写字母/数字/下划线，≤40 字
+version: 1
+enabled: false               # 由人改 true
+window_title: 记事本          # 三条窗口标识至少写一条（有 click/type 时必须有）
+window_class: Notepad
+exe: notepad.exe
+effects: [read]              # 只能是 read / write_local / ui_control；external_send 一律拒
+note: 只读示例：打开记事本看一眼标题，不做任何动作
+steps:
+  - n: 1
+    do: wake                 # wake / navigate / click / type / wait
+    expect: 前台窗口标题里出现「记事本」   # 必填：凭什么算这一步成功
+    safe_point: true
+  - n: 2
+    do: wait
+    wait_s: 1.0
+    expect: 等界面画完（1 秒内没有新窗口抢前台）
+    safe_point: true

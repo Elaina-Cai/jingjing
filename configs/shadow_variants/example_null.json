@@ -1,0 +1,17 @@
+{
+  "name": "null_noise_floor",
+  "notes": "空候选：A/B 同口径同参数。用途是量「什么都不改」时的噪声地板；真实候选的差异要先超过它，否则只是 LLM 随机性。",
+  "baseline": {
+    "context": "current",
+    "system_mode": "online",
+    "mode": "regen",
+    "temperature": 0.7,
+    "max_tokens": 180
+  },
+  "candidate": {
+    "context": "current",
+    "system_mode": "online",
+    "temperature": 0.7,
+    "max_tokens": 180
+  }
+}

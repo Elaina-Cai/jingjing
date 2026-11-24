@@ -1,0 +1,22 @@
+# 声明式工具示例（`_` 开头的文件不装载，只当文档看）
+#
+# 这就是「加一个能力 = 加一个文件」的样子：
+#   - 只许 read / write_local（external_send 一律拒：出口唯一）
+#   - allow_hosts 必填，URL 模板的主机部分不许带占位符
+#   - 默认不启用：只有文件里写 enabled: true 且调用方 enable=True 才启用
+name: wttr_weather
+family: web
+effects: [read]
+args:
+  city: str
+returns: 一行当前天气（温度 + 天气现象）
+perms: []
+limits:
+  timeout_s: 8
+  max_chars: 600
+allow_hosts: [wttr.in]
+http:
+  method: GET
+  url: "https://wttr.in/{city}?format=3"
+enabled: false
+idempotent: true

@@ -1,0 +1,20 @@
+# 声明式工具的唯一模板：一个文件 = 一个工具（docs/decisions/工具包.md §17.2）
+#
+# 生效要过两道闸：这个文件里写 `enabled: true`，**并且**调用点 bind_declared(enable=True)。
+# 总闸是开关 DECLARED_TOOLS（默认 off：一个文件都不读）。
+#
+# 权限就是 effects：只许 read / write_local；external_send 与 ui_control 连写都会在解析期被拒。
+name: demo_weather
+family: web
+effects: [read]
+args:
+  city: str
+returns: 该城市未来一天的天气摘要（纯文本）
+allow_hosts: [example.com]     # 主机白名单；URL 的 host 必须在名单里（子域算命中）
+limits:
+  timeout_s: 5                 # >10 会被拒
+  max_chars: 800               # >4000 会被拒
+http:
+  method: GET                  # 只许 GET；POST/PUT/PATCH/DELETE 会被拒
+  url: https://example.com/weather?city={city}
+enabled: false                 # 由人改 true

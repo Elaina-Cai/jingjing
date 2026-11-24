@@ -1,0 +1,1700 @@
+# 重构计划（机器可读）—— 与 docs/重构总纲.md 的 E0–E4 一一对应
+#
+# 字段约定：
+#   id          切片编号（U-xx），全局唯一；提交信息里引用它
+#   stage       E0 / E1 / E2 / E3 / E4
+#   files       允许改动的文件；新增文件写成 "路径:: new"
+#   interfaces  这一片新引入的签名（写清楚，免得实现时自由发挥）
+#   migration   需要的迁移号；null 表示不动库
+#   flags       新增/使用的开关（含默认态）；null 表示不加开关
+#   acceptance  验收命令 + 期望输出（必须是本仓库能跑的命令）
+#   rollback    回滚动作（一句话，必须可执行）
+#   risk        最大的风险点（写"最坏会发生什么"）
+#
+# 纪律：一个切片 = 一次提交（或一组紧邻提交）；不许跨片批量提交。
+version: 1
+aliases:
+  MIGRATION_NEXT: 63   # 现状 62 个迁移；新迁移从这里开始，按片顺延
+slices:
+  - id: U-00
+    stage: E0
+    title: 封死账本清空入口（clear 需显式授权）
+    why: 生产代码里存在 TerminalEventStore.clear()，虽无生产调用者，但它是唯一能整表删除的路径
+    files:
+      - core/terminal/event_store_db.py
+      - tests/test_event_chain_links.py
+    interfaces:
+      - "TerminalEventStore.clear(self, *, allow_clear: bool = False) -> None"
+    migration: null
+    flags: null
+    acceptance:
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter events"
+      - "expect: RESULT n/n passed（且无新的失败）"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -X utf8 -u scripts\\check_invariants.py"
+      - "expect: I1b 显示 clear() 需 allow_clear=True"
+    rollback: 还原 event_store_db.py 的 clear 签名（单文件 git checkout）
+    risk: 若有运维脚本依赖无参 clear()，会立刻 TypeError —— 这是期望行为，改脚本传 allow_clear=True
+
+  - id: U-01
+    status: done
+    stage: E0
+    title: 判决行留痕（每回合一行，进账本旁注）
+    why: 没有留痕就没有开口率/弃权率/basis 指回率，后面每一阶段都无法验收
+    files:
+      - core/terminal/turn_trace.py
+      - core/routing/turn_pipeline.py
+      - core/features.py
+      - db/migrations.py
+      - scripts/report_turn_trace.py
+      - tests/test_turn_trace.py
+      - tests/test_flag_reader_discipline.py
+      - tests/test_env_flag_isolation.py
+    interfaces:
+      - "record_turn_trace(*, turn_id: str, chat_id: str, decision: str, basis: Sequence[str] | None, ts: datetime) -> None"
+      - "iter_turn_trace(*, since: datetime, until: datetime | None = None) -> Iterable[TurnTraceRow]"
+    migration: 63
+    flags: "TURN_TRACE: off|shadow|on（默认 off）"
+    notes: >
+      开关总数断言分散在多个测试（用 `Select-String -Path tests\\*.py -Pattern 'len\(features\.TRI_STATE_FLAGS\)'` 全量搜），加开关时必须把每一处 75 改成新值，
+      并在 `tests/test_env_flag_isolation.py` 的 STANDALONE_SWITCHES 里登记，否则 flag_reader 会红。
+      表约束：`turn_id` 主键（等价 UNIQUE），重复写为 no-op；行上带 `mode` 列，shadow 也落库（否则连续 7 天读数没有数据源）。
+      写入点只能是 decision 定稿后的唯一收口（`core/routing/turn_decision.py:80` 有 8 个 silent 出口，不许各写一遍）。
+    acceptance:
+      - "cmd: python -X utf8 -u tests\\test_turn_trace.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter events"
+      - "expect: RESULT n/n passed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter flag"
+      - "expect: RESULT n/n passed（开关总数断言已同步）"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -X utf8 -u scripts\\report_turn_trace.py --days 1"
+      - "expect: 输出 开口率/弃权率/沉默率/覆盖率/指回率，且样本数为当天判决行数"
+      - "cmd: 同上，但 .env 里 TURN_TRACE=off 后重启"
+      - "expect: 输出 TURN_TRACE=off, 0 rows 且 exit 0"
+    rollback: TURN_TRACE=off（不再写）；迁移 63 只新增表，回滚不需要
+    risk: 开关落到 .env 却忘记重启 → 读数全 0；验收时必须打印启动时的 flag 快照
+
+  - id: U-02
+    status: superseded
+    superseded_by: "agents/conversational.py 与 core/routing/turn_pipeline.py 已退役，相关工作由 loop/ 架构承接"
+    stage: E1
+    title: 输出契约校验（三必填 + 三条件）
+    why: 契约里写了字段，代码里没有校验器，等于没写
+    files:
+      - core/contracts/verdict.py
+      - agents/conversational.py
+      - tests/test_verdict_contract.py
+    interfaces:
+      - "validate_verdict(payload: Mapping[str, Any]) -> VerdictResult"
+      - "VerdictResult(ok: bool, errors: tuple[str, ...], decision: str, deliver_count: int, basis_count: int)"
+    migration: null
+    flags: "VERDICT_CONTRACT: off|shadow|on（默认 shadow）"
+    acceptance:
+      - "cmd: python -X utf8 -u tests\\test_verdict_contract.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter memory"
+      - "expect: RESULT n/n passed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter group"
+      - "expect: RESULT n/n passed"
+    rollback: VERDICT_CONTRACT=off（不校验、只透传）
+    risk: 收紧后线上出现「四段缺失」→ 判整轮失败；因此默认 shadow，只记不拒
+
+  - id: U-03
+    status: superseded
+    superseded_by: "agents/conversational.py 与 core/routing/turn_pipeline.py 已退役，相关工作由 loop/ 架构承接"
+    stage: E1
+    title: 完整留痕改两行制（判决行每回合 / 完整留痕仅开口与动手）
+    why: 沉默回合也写完整留痕会把账本旁注写爆，且指标分母会失真
+    files:
+      - core/terminal/turn_trace.py
+      - core/routing/turn_pipeline.py
+      - tests/test_turn_trace.py
+    interfaces:
+      - "record_turn_trace(..., full: bool = False) -> None"
+    migration: null
+    flags: null
+    acceptance:
+      - "cmd: python -X utf8 -u tests\\test_turn_trace.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -X utf8 -u scripts\\check_invariants.py"
+      - "expect: 全绿（I5 仍为 PENDING，提示升级为抽样检查）"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter events"
+      - "expect: 沉默回合 full 行数 = 0"
+    rollback: 恢复 full=True 的旧行为（单文件回退）
+    risk: 误把 ask 当成沉默 → 少写留痕；验收必须分别统计 respond/ask/silent/abstain 四类行数
+
+  - id: U-04
+    stage: E2
+    title: 出口回执与幂等（deliver → Receipt）
+    why: 现在只有一条旧发送路径，没有回执、没有幂等键，重复发送不可测
+    files:
+      - core/speech/exit_shadow.py
+      - tests/test_exit_shadow.py
+      - core/speech/receipts.py
+      - core/execution/provider.py
+      - core/execution/gui/wechat.py
+      - core/execution/gui/wechat_send.py
+      - core/execution/wx_sender.py
+      - core/speech/outbound.py
+      - tests/test_outbound_receipt.py
+      - tests/test_receipt_no_dup.py
+      - core/speech/delivery.py
+      - core/speech/outbound.py
+      - db/migrations.py
+      - tests/test_delivery_receipt.py
+    interfaces:
+      - 'shadow_deliver(payload, *, turn_id, chat_id="", deliver_fn=None) -> list[Receipt]'
+      - 'items_from_payload(payload, *, chat_id="") -> list[DeliverItem]；exit_shadow_mode() -> str'
+      - 'SendResult(ok, msg_id="", error="", ack="platform_id", local_id="", server_id="")'
+      - 'build_receipt(applied, result) -> Receipt'
+      - 'record_delivery_receipt(applied, result, *, turn_id="", chat_id="", store=None) -> bool'
+      - 'ack_baseline(who) -> int | None；ack_after_send(who, msg, baseline) -> dict'
+      # 五态 + 回执四值两列：出处 docs/decisions/出口.md §5 / §14-2（不是三态）
+      - "deliver(items: Sequence[DeliverItem], *, turn_id: str, dry_run: bool = False) -> list[Receipt]"
+      - "Receipt(status: Literal['sent','skipped','blocked','failed','partial'], kind: str, target: str = '', ack: Literal['platform_id','unconfirmed','error','none'] = 'none', reason: str = '', platform_msg_id: str = '', client_msg_id: str = '', adapter: str = '', detail: str = '', at: str = '')"
+    migration: 64
+    flags: "DELIVERY_CONTRACT: off|shadow|on（默认 off）"
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_exit_shadow.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_outbound_receipt.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_receipt_no_dup.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_wechat_send_verify.py'
+      - 'expect: RESULT 0 failed'
+      # 本切片自己的红测试先绿，再看回归（run_all_tests 不含它，别拿它当验收）
+      - "cmd: python -X utf8 -u tests\\test_delivery_receipt.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter outbound"
+      - "expect: RESULT n/n passed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter flag"
+      - "expect: RESULT n/n passed"
+    rollback: DELIVERY_CONTRACT=off（回到旧发送路径）；迁移 64 只加表
+    risk: dry-run 记账与真实发送共用入口 → 误发；验收必须先跑 7 天 dry-run 且重复发送 0
+  - id: U-05
+    stage: E2
+    title: 平台适配器能力声明
+    why: 适配器现在不会自报「能发什么、要什么权限」，出口无法在发之前判定
+    files:
+      - core/execution/wechat_adapter.py
+      - tests/test_wechat_adapter.py
+      - core/execution/adapters.py
+      - tests/test_adapter_capabilities.py
+    interfaces:
+      - 'WechatAdapter.send(kind, target, payload) -> Receipt；capabilities() -> AdapterCapabilities'
+      - 'build_registry(*, adapter=None, enable=False) -> AdapterRegistry；default_registry() -> AdapterRegistry'
+      - "capabilities() -> AdapterCapabilities"
+      # targets 与结构化 rate_limits 是出口校验①的输入：没有它们出口无法在发之前判定
+      - "AdapterCapabilities(platform: str, kinds: frozenset[str], targets: frozenset[str], needs_auth: bool, rate_limits: Mapping[str, int], enabled: bool = False)"
+      - "AdapterRegistry.check(platform: str, kind: str, target: str) -> tuple[bool, str]"
+    migration: null
+    flags: null
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_wechat_adapter.py'
+      - 'expect: RESULT 0 failed'
+      - "cmd: python -X utf8 -u tests\\test_adapter_capabilities.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter outbound"
+      - "expect: RESULT n/n passed（含 capabilities 用例）"
+    rollback: 删除新增模块（无调用点即无副作用）
+    risk: 能力声明与真实平台不一致 → 出口放行却发不出；验收要有一条「声明 kinds ⊇ 实际可发」对照
+  - id: U-06
+    stage: E3
+    title: 自我读数（事件清单 + 档位 + 时间窗，无数值）
+    why: 数值模型没有真值可校准；读数必须能从账本现算
+    files:
+      - "core/context/self_readout.py:: new"
+      - "tests/test_self_readout.py:: new"
+    interfaces:
+      - "readout(*, person_id: str, chat_id: str, now: datetime, hours: int = 72) -> list[str]"
+    migration: null
+    flags: "SELF_READOUT: off|shadow|on（默认 off）"
+    acceptance:
+      - "cmd: python -X utf8 -u tests\\test_self_readout.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter memory"
+      - "expect: RESULT n/n passed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -X utf8 -u scripts\\check_invariants.py"
+      - "expect: 全绿"
+    rollback: SELF_READOUT=off（不注入读数）
+    risk: 档位判定依赖人工标注；先只输出「事件 + 消息号」，档位留给下一片
+
+  - id: U-07
+    stage: E3
+    title: 记忆候选转正三扇门（不同消息号 ≥3 次 / 人批准 / 她明说）
+    why: 候选区现在只靠人工 REST，转正规则没有落码
+    files:
+      - "core/memory/proposals.py:: new"
+      - tests/test_memory_proposals.py
+    interfaces:
+      - "promote(candidate: Candidate, *, evidence_msg_ids: Sequence[str], actor: str) -> PromoteResult"
+    migration: null
+    flags: "MEMORY_PROMOTE: off|shadow|on（默认 off）"
+    acceptance:
+      - "cmd: python -X utf8 -u tests\\test_memory_proposals.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter memory"
+      - "expect: RESULT n/n passed"
+    rollback: MEMORY_PROMOTE=off（候选只读不转正）
+    risk: 三条证据来自同一条消息的不同片段 → 会误转正；实现必须按 external_msg_id 去重
+
+  - id: U-08
+    status: superseded
+    superseded_by: "agents/conversational.py 与 core/routing/turn_pipeline.py 已退役，相关工作由 loop/ 架构承接"
+    stage: E4
+    title: 风格样本 + 改写点清单
+    why: 生成层是唯一用户能感知的层，但现在是模型默认腔
+    files:
+      - "configs/speech_seed/style_samples.json:: new"
+      - agents/conversational.py
+      - "tests/test_style_samples.py:: new"
+    interfaces:
+      - "style_block(*, chat_id: str, limit: int = 3) -> str"
+    migration: null
+    flags: "STYLE_SAMPLES: off|shadow|on（默认 off）"
+    acceptance:
+      - "cmd: python -X utf8 -u tests\\test_style_samples.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter group"
+      - "expect: RESULT n/n passed"
+      - "cmd: 人工盲评 50 条（模板 docs/decisions/受话标注集_50条.md，逐条记「像人/不像人」）"
+      - "expect: 判「像人」≥60%，且信息量不低于基线；同时记录样本之间的重复度"
+    rollback: STYLE_SAMPLES=off
+    risk: 样本把方言/口癖放大成模板 → 新的「同一模具」；验收必须看多条样本之间的差异度，不只看像人率
+
+  - id: U-09
+    status: done
+    stage: E3
+    title: 工具包注册表（三动词 · effects 分层 · 注入 ≤6 · 每回合 ≤2）
+    why: 工具包在 11 块板里，但 U-00..U-08 没有任何一片覆盖它 → 按指引走完它永远不会被实现
+    files:
+      - core/tools/registry.py
+      - "core/tools/handlers.py:: new"
+      - core/tools/prompt.py
+      - core/tools/builtin.py
+      - agents/conversational.py
+      - core/features.py
+      - tests/test_toolbox_contract.py
+      - tests/test_tool_prompt_block.py
+    interfaces:
+      - "ToolRegistry.register(spec: ToolSpec) -> tuple[bool, str]"
+      - "ToolRegistry.check_call(name: str, args: Mapping | None = None, *, turn_id: str = '') -> tuple[bool, str]"
+      - "ToolRegistry.select_for_prompt(*, limit: int = TOOL_IN_PROMPT_MAX) -> Sequence[ToolSpec]"
+      - "ToolResult(status: str, content: str, source: str, at: str, truncated: bool, evidence: str, reversible: bool)"
+      - "render_tool_block(specs: Sequence[ToolSpec]) -> str（抬头 + 每行 ≤120 字 + 收尾；整段 ≤700 字，整行丢弃不截半行）"
+      - "build_tool_block(registry=None, *, limit=None) -> str（没有注册表/没有启用工具 -> 空串）"
+      - "_tool_specs_block() -> str（agents/conversational.py：off 空 / shadow 只留痕 / on 注入）"
+      - "tests/test_tool_purpose_and_hints.py"
+    migration: null
+    flags: "TOOLBOX_CONTRACT: off|shadow|on（默认 off）"
+    acceptance:
+      - "cmd: python -X utf8 -u tests\\test_toolbox_contract.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: python -X utf8 -u tests/test_tool_prompt_block.py"
+      - "expect: RESULT 0 failed"
+      - "cmd: .\\.venv_it\\Scripts\\python.exe -u scripts\\run_all_tests.py --filter tool"
+      - "expect: RESULT n/n passed"
+      - "cmd: 影子跑 3 天，读 .test_tmp/toolbox_shadow.out 的「注入超限 / 编造率 / act 证据缺失」三行"
+      - "expect: 注入超限 0、编造率 0、act 证据缺失率 0"
+      - "cmd: python -X utf8 -u tests/test_tool_purpose_and_hints.py"
+      - "expect: RESULT 0 failed"
+    notes: 工具清单已进 prompt（TOOL_PACKAGE_PROMPT 默认 off；shadow 只留痕），注入 ≤6 行、单行 ≤120 字、整段 ≤700 字。
+    rollback: TOOLBOX_CONTRACT=off（注册表无调用点即零副作用）；不写任何表，无需回滚迁移
+    risk: 工具 schema 挤掉世界面预算（≤6 个 × 40~60 token）；act 无证据则「做了没说/说了没做」不可判；另防同名不同义（core 里已有 observe/schedule）
+  - id: U-10
+    status: superseded
+    superseded_by: "agents/conversational.py 与 core/routing/turn_pipeline.py 已退役，相关工作由 loop/ 架构承接"
+    stage: E3
+    title: 在手的事（一件事 · 四槽 · 安全点 · 批准只从人来）
+    why: 图上有第 12 个实体（t_job.png，620,-300,1000），但没有 job 表、没有安全点、没有 approval 存储；出口也就无法产生 pending_approval。没有这一片，「办一件事」只能靠临时补丁长进判或出口
+    files:
+      - core/contracts/plan.py
+      - core/jobs/__init__.py
+      - core/jobs/store.py
+      - core/jobs/runner.py
+      - core/jobs/ingest.py
+      - core/jobs/executor.py
+      - agents/conversational.py
+      - core/features.py
+      - db/migrations.py
+      - tests/test_job_contract.py
+      - tests/test_job_store.py
+      - tests/test_job_ask_once.py
+      - tests/test_job_runner.py
+      - tests/test_job_wiring.py
+      - core/context/job_readout.py
+      - tests/test_job_readout_block.py
+      - core/routing/turn_pipeline.py
+      - tests/test_job_tick_wiring.py
+      - tests/test_job_plan_ingest.py
+      - tests/test_job_executor.py
+      - tests/test_pending_approval_exit.py
+      - core/jobs/approval.py
+      - tests/test_job_grant.py
+      - tests/test_job_ui_step.py
+      - core/terminal/delivery_receipts.py
+      - tests/test_delivery_receipts_ledger.py
+      - tests/test_job_approval.py
+      - tests/test_job_write_executor.py
+      - tests/test_env_flag_isolation.py
+      - tests/test_job_external_send.py
+      - core/contracts/delivery.py
+      - core/tools/builtin.py
+      - core/bootstrap.py
+      - tests/test_tool_registry_binding.py
+      - tests/test_job_state_diff.py
+      - core/jobs/policy.py
+      - tests/test_job_authorization.py
+      - tests/test_failure_visible.py
+    interfaces:
+      - recent_failures(chat_id, *, limit=3, within_hours=72) -> list[dict]   # 失败进读数
+      - 'parse_grant(text, job, *, is_private, speaker_id="", now=None) -> Policy | None'
+      - 'write_executor(registry=None, *, turn_id="", target="", shadow=True, allow_ui=False, allow_external=False, external=None, max_result_chars=600) -> Callable[[Step], dict]'
+      - '_external_sender() -> Callable[[str, str], dict] | None   # 全仓只有一处：wechat_send.send_and_verify'
+      - 'send:张三|明天见（external_send 步的载荷：| 前收件人，| 后正文）'
+      - 'record_grant(job, granted, *, store=None) -> bool'
+      - 'apply_grant(text, *, chat_id, is_private, speaker_id="", store=None, now=None) -> list[Policy]'
+      - "Job(job_id, chat_id, goal, owner_person_id, state, step_n, steps, awaiting, trigger, policy, artifact, handoff, tool_calls_total, turns_total, updated_by, updated_at)"
+      - "Job.readout(self) -> str   # <=60 字：job_id · 目标 · 第 n 步 · 在等什么"
+      - "Job.can_advance(self) -> bool   # state in (open, awaiting) 且 turns_total < 20"
+      - "Plan(goal: str, steps: tuple[Step, ...] = (), awaiting: Awaiting = Awaiting(), job_id: str | None = None)"
+      - "Approval(job_id, step_n, action_hash, who, channel, at, expires_at=None)"
+      - "JobStore.create(job: Job, *, actor: str = 'judge') -> int   # 开一件事；超 MAX_JOBS_PER_CHAT 抛 JobLimitExceeded"
+      - "JobStore.append(job_id: str, kind: str, *, payload: dict | None = None, actor: str = 'judge') -> int   # 只追加，不改旧行"
+      - "JobStore.load(job_id: str) -> Job | None   # 读投影"
+      - "JobStore.readouts(chat_id: str, limit: int = READOUT_MAX_ITEMS) -> list[str]   # off/shadow 恒空"
+      - "collect_job_readouts(extra, *, store=None) -> list[str]   # off 不碰台账 / shadow 只落读数 / on 写 extra[\"job_readouts\"]"
+      - "build_job_readout_block(extra) -> str   # 空 或 [在手的事] + 1~3 行 `- job_id · 目标 · 第 n 步 · 在等什么`"
+      - "JobStore.approve(approval: Approval) -> bool   # (job_id, step_n, action_hash) 幂等"
+      - "JobStore.is_approved(job_id, step_n, action_hash, *, now=None) -> bool   # 过期不算批"
+      - "JobStore.rebuild(chat_id: str | None = None) -> int   # 投影由事件整表重放"
+      - "advance(job: Job, *, execute, store=None, actor='judge', budget=TOOL_CALLS_PER_JOB, allow_effects=('read',), approved=None) -> AdvanceResult"
+      - "AdvanceResult(job, ran: tuple[StepRun, ...], stop: str, tool_calls: int)   # stop ∈ done/need_approval/awaiting/budget/turns/state/failed/no_executor"
+      - "step_action_hash(job_id: str, step: Step) -> str   # 批的是哪一个动作，不是哪一句「好吧」"
+      - "_job_tick(*, chat_id: str, extra, trace_id: str = '') -> None   # 判的生成口每回合至多一次；off 不碰台账 / shadow 只记日志 / on 写 extra[job_readouts]"
+      - "ingest_plan(payload, *, chat_id: str, store=None, trace_id: str = '', owner_person_id: str | None = None) -> Job | None   # off 不读载荷 / shadow 只记日志 / on 才落库"
+      - "parse_plan(payload) -> Plan | None   # 目标 <=200 字、1~12 步、effects 四档、步骤号唯一、approved 一律 False"
+      - "pending_approval_receipts(result: AdvanceResult) -> list[dict]   # 只在 stop == need_approval 时给一条"
+      - "read_only_executor(registry=None, *, turn_id: str = '', target: str = '', max_result_chars: int = 600) -> Callable[[Step], dict]   # 只放行 effects == read"
+      - "parse_action(action: str) -> tuple[str, str]   # web_search:杭州机票 -> (web_search, 杭州机票)"
+      - "set_default_registry(registry) / default_registry() -> Any   # 没绑注册表就不注入执行器"
+      - "pending_approval_receipt(approval: Mapping[str, Any]) -> Receipt   # 永不发送；ack=none、无消息号"
+      - "deliver_pending_approvals(approvals, *, turn_id: str, ledger=None) -> list[Receipt]   # 签名里没有 registry"
+      - "parse_approval(text: str, job: Job, *, is_private: bool, speaker_id: str = '', now=None) -> Approval | None"
+      - "record_approval(job: Job, approval: Approval, *, store=None) -> bool   # 落 job_approvals + 追加 approved 事件"
+      - "apply_approval(text: str, *, chat_id: str, is_private: bool, speaker_id: str = '', store=None, now=None) -> list[Approval]"
+      - "write_executor(registry, *, turn_id: str = '', target: str = '', shadow: bool = True, max_result_chars: int = 600) -> Callable[[Step], dict]"
+      - "record_receipt(receipt, *, turn_id: str, chat_id: str = '', ts=None) -> bool   # 非 on 档返 False、重复行返 False"
+      - "make_ledger(*, turn_id: str, chat_id: str = '') -> Callable[[Receipt], None]"
+      - "count_by_status(*, chat_id: str | None = None) -> dict[str, int]   # 量具口径"
+      - "build_registry(base_tools=None, *, enable_writes: bool = False, enable_reads: bool = True) -> ToolRegistry   # read 默认启用 / write_local 默认只登记"
+      - "bootstrap(base_tools=None, *, enable_writes: bool = False) -> ToolRegistry   # 装表 + set_default_registry"
+      - "write_note_handler(*, target='', what='', params=None) -> ToolResult   # 写 data/workspace/notes，回 state_before/state_after/changed"
+      - "bind_tool_package(old_registry: Any = None) -> Any   # core/bootstrap.py::build_agent 调，绑失败只记日志"
+      - "effect_tier(effect: str) -> str   # read=auto / write_local=grant / ui_control|external_send=confirm；未知=confirm"
+      - "grant_allows(policy, *, step, amount=0.0, now=None) -> tuple[bool, str]   # approved_by 非空 + 未过期 + scope + 金额"
+      - "authorize_step(step, *, policy=None, amount=0.0, now=None) -> tuple[bool, str, str]   # (允许, 档位, 拒绝原因)"
+      - "needs_human(step, *, policy=None, amount=0.0, now=None) -> bool"
+    migration: 64
+    flags: "JOB_LEDGER: off|shadow|on（默认 off）"
+    notes: >
+      加三张表：job_events（唯一事实源，append-only，(job_id, seq)）、jobs（当前状态投影，
+      rebuild() 可整表重放）、job_approvals（人给的批准行，主键 (job_id, step_n, action_hash) 幂等）。
+      开关 JOB_LEDGER 默认 off：off 写读全 no-op，shadow 只写不读（readouts 恒空），on 才进 prompt。
+      推进器只接只读：runner.advance 的 allow_effects 默认 ('read',)，没有批准时 effects != read 的步骤
+      一步都不跑（stop=need_approval 并写一条 awaiting{kind: approval}），所以出口的 pending_approval 有东西可挂。
+      判的输出新增条件字段 plan（契约 §2，<=1 次），但判仍是唯一模型点：本片不新增任何模型调用。
+      工具包已装填（`core/tools/builtin.py`，`core/bootstrap.py::bind_tool_package` 在 build_agent 里绑）：
+      read 默认启用（web_search / fetch_url 包旧异步实现，独立线程 + 硬超时；get_current_time 本地）；
+      write_local 装表时开（write_note 只写 data/workspace/notes），但能不能动手另有闸：写步必须先在私聊拿到人的 Approval。
+      写回执必须是**状态差异式**的（state_before / state_after / changed）：changed 为空即 no_change，
+      执行器判失败、台账里也带着前后摘要 —— 写操作没有幂等键，只能靠状态比较证明「真的变了」。
+      三级授权落地（core/jobs/policy.py）：read 免批准；write_local 只在**人批过**的长期授权
+      （Policy.approved_by 非空 + 未过期 + 在 scope 内 + 不超 max_amount）下自己动手，否则逐次点头；
+      ui_control 永远逐次；external_send 即使批准也不许从执行器走（只走出口）。停下时回执带 tier 与卡点原因。
+      三条硬红线（办_在手的事.md §8）进 check_invariants：无 approval 不调出口、隐私/金额不进群、job 不持有平台通道。
+      读侧已接（`agents/conversational.py::_job_readout_block`），但 JOB_LEDGER 默认 off：读数函数见开关就返回空串、
+      连台账都不碰，既有提示词逐字不变；shadow 只落 extra['job_readout_shadow'] 读数、不注入。
+      判侧已接（turn_pipeline.py::_job_tick，挂在 generate_turn 里）：off 档读开关就返回、不打开台账，
+      shadow 对每件在手的事调一次 advance(job, store=store)（不给 execute，只回 stop=no_executor、一个字节都不写台账），
+      on 才把读数写进 extra。三档都不发消息，默认档与上一版逐字相同。真正的执行器由 U-11 注入。
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_job_external_send.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_ui_step.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_grant.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_contract.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_store.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_ask_once.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_runner.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_wiring.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_readout_block.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_tick_wiring.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_plan_ingest.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_executor.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_pending_approval_exit.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_delivery_receipts_ledger.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_approval.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_write_executor.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_viewer_click_targets.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_tool_registry_binding.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_state_diff.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_authorization.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u scripts\check_docs_consistency.py'
+      - 'expect: 全绿（含 addBoard(300, 220, 620, -300, LLM_Z, t_job.png, 在手的事)）'
+      - 'cmd: 影子跑 7 天，读 .test_tmp/job_shadow.out 的「中断恢复率 / 越权动作 / 任务预算超支率」三行'
+      - 'expect: 中断恢复率 100%、越权动作 0、任务预算超支率 0'
+      - 'name: 失败要进她的下一轮上下文（[最近没成] 不被 3 条上限挤掉，两块不是 AUX）'
+      - 'cmd: python -X utf8 -u tests/test_failure_visible.py'
+      - 'expect: RESULT 0 failed'
+    rollback: JOB_LEDGER=off（三张空表留着不读不写）；迁移 64 只建表不写行
+    risk: 最坏是「半个订单」——不可中断的步骤被当成可中断；因此 safe_point 必须按步骤显式声明，测试钉住默认值
+  - id: U-11
+    stage: E4
+    title: 阶段 6：GUI 驱动（一个驱动层四个 backend）——读屏 / 跳转 / 点击；微信写侧半程（读库 + 填字不发）
+    why: 出口与工具包都齐了，但「动别人的界面」这一族一个实现都没有——写操作只能写本地笔记，
+      真正的落点（网页 / App）没有驱动。先把只读打通：读错的方向是「少看一眼」，点错就是第二单。
+    files:
+      - tests/test_gui_input.py
+      - core/execution/gui/__init__.py
+      - core/execution/gui/base.py
+      - core/execution/gui/cdp.py
+      - core/execution/gui/wechat.py
+      - core/execution/gui/wechat_send.py
+      - core/execution/wx_chat.py
+      - core/features.py
+      - core/tools/builtin.py
+      - core/tools/registry.py
+      - tests/test_gui_cdp_reader.py
+      - tests/test_gui_snapshot_tool.py
+      - tests/test_gui_navigate.py
+      - tests/test_gui_click.py
+      - tests/test_gui_wechat.py
+      - tests/test_wechat_db_read.py
+      - tests/test_wechat_current_chat.py
+      - tests/test_wechat_send_verify.py
+      - tests/test_wechat_open_strict.py
+      - tests/test_wechat_mention_picker.py
+      - core/execution/gui/uia.py
+      - core/execution/gui/uia_win.py
+      - tests/test_gui_uia_state.py
+      - tests/test_wechat_wake.py
+      - tests/test_job_external_mention.py
+    interfaces:
+      - 'CdpReader.type_text(selector, text, *, target="", window_title="", expect="", max_chars=4000, polls=NAV_POLLS, pre_gate=None) -> TypeResult'
+      - 'check_text(text) -> str；TypeResult(...)；gui_input_handler(*, target, what, params) -> ToolResult；_input_spec(window_title="") -> ToolSpec；can_ui_control(..., value_changed=None)'
+      - 'GuiSnapshot(target, url, title, text, taken_at, truncated) + digest() / is_empty() / as_dict()'
+      - 'normalize_text(raw, *, max_chars=SNAPSHOT_MAX_CHARS) -> tuple[str, bool]'
+      - 'list_targets(endpoint, *, timeout, http_get=None) -> list[dict[str, str]]'
+      - 'pick_target(targets, target="") -> dict[str, str]'
+      - 'CdpReader(*, endpoint, connect=None, http_get=None, timeout, taken_at=None).snapshot(target="", *, max_chars=4000) -> GuiSnapshot'
+      - 'gui_snapshot_handler(*, target="", what="", params=None) -> ToolResult（延迟导入驱动；错误码映射 GUI_STATUS_MAP）'
+      - 'split_mention(text) -> tuple[str, str]（`@名字 正文` → (名字, 正文)；mention 交给注入的发送器）'
+      - 'UiaReader(*, backend=None, max_elements=MAX_ELEMENTS, max_chars=MAX_CHARS, taken_at="").snapshot(target="", *, max_chars=None) -> GuiSnapshot'
+      - 'pick_window(windows, target="") -> dict | None（空=前台；否则标题/类名子串，只认唯一命中）'
+      - 'render_tree(nodes, *, max_elements=500, max_chars=4000) -> tuple[str, bool]'
+      - 'AutomationBackend.windows() -> list[dict] / .tree(hwnd, *, max_depth=12) -> list[dict] / .show(title="") -> bool'
+      - 'wake_window(title_hint="") -> bool（UIA Show → wx_vision.activate_window → 验前台与 IsIconic）'
+      - 'gui_state_handler(*, target="", what="", params=None) -> ToolResult（只读控件树；错误码映射 GUI_STATUS_MAP）'
+      - 'GUI_STATUS_MAP: dict[str, str]（blocked→ui_blocked / not_connected / no_target / timeout / unsupported→unsupported_type）'
+      - 'check_nav_url(url) -> str（只许 http(s)；空 / 控制字符 / 其它协议一律 GuiError）'
+      - 'GuiMotion(target, action, url_before, url_after, title_after, state_before, state_after, changed, expect_found, at) + is_changed()'
+      - 'diff_snapshots(before, after) -> dict[str, Any] / expect_found(snapshot, expect) -> bool'
+      - 'CdpReader(...).navigate(url, *, target="", expect="", max_chars=4000, polls=NAV_POLLS) -> GuiMotion'
+      - 'gui_navigate_handler(*, target="", what="", params=None) -> ToolResult（ui_control；状态差异进 state_before/state_after/changed）'
+      - 'build_registry(base_tools=None, *, enable_writes=False, enable_reads=True, enable_ui_control=False) -> ToolRegistry / ui_specs()'
+      - 'read_recent(db_path, chat="", *, limit=RECENT_LIMIT, account_id="") -> list[dict]（4.x 每会话一张 Msg_<md5> 表；3.x str_talker 兜底）'
+      - '_chat_table(conn, chat) -> str / _self_rowid(conn, own) -> int / _ContactBook(path).display(username) -> str'
+      - '_as_text(value) -> str（zstd 解压）/ _split_sender_prefix(text) -> (sender, body) / _looks_like_xml(text) -> bool'
+      - 'CurrentChat(chat_id, source, confidence, display) + known / as_dict()'
+      - 'resolve_current_chat(*, explicit="", anchor=None, ocr=None, db_path=None, account_id="") -> CurrentChat（1.0/0.9/0.7/0.3 四档，重名弃权）'
+      - 'current_chat(*, anchor=None, ocr=None, db_path=None, account_id="") -> CurrentChat / recent_chat(db_path, *, account_id="") -> CurrentChat'
+      - 'wx_chat.active_chat_id(*, max_age_s=_ACTIVE_TTL_S) -> str（锚点：我们打开过且没过期的会话）'
+      - 'wechat.max_local_id(db_path, chat, *, account_id="") -> int（发送前基线）'
+      - 'wechat.rows_after(db_path, chat, *, after_local_id=0, limit=20) -> list[dict]（只认新增行）'
+      - 'SendReceipt(status, detail, chat, text_sha256, local_id, server_id, baseline, polls, at, evidence) + as_receipt()'
+      - 'send_and_verify(chat, text, *, db_path=None, deps=None, store=None, turn_id="", poll_interval_s=POLL_INTERVAL_S, polls=POLLS, sleep=None, refresh=None) -> SendReceipt'
+      - 'POLL_INTERVAL_S = 1.5 / POLLS = 16（微信落盘实测 26 秒，回读窗口必须盖住它）'
+      - 'wechat.refresh_db(account_id="") -> Path（增量重新解密；回读前必须刷新，否则拿旧快照证明「没发出去」）'
+      - 'wx_chat.open_chat_strict(who, raw_who="") -> dict（按回车打开后用会话顶栏验收；搜索列表 OCR 截断不再误判）'
+      - 'WechatUiDeps.message_box_has_text() -> bool | None（输入框里还有没有字：True 没发出去 / False 已空 / None 拿不准）'
+      - 'wx_chat.mention_member(name, *, window=None) -> dict（打 @名字 筛名单，OCR 读名单，只选唯一匹配；失败清空输入框）'
+      - 'wx_chat.message_box_text(window=None) -> str | None（输入框里现在有哪些字；None = 探针失败）'
+      - 'wechat.fill_message(chat, text, *, mention="", deps=None, turn_id="", evidence_dir="data/evidence") -> FillResult（@ 在正文之前，失败抛 unsupported）'
+      - 'normalize_text(text) / text_fingerprint(text) -> sha256[:16]'
+      - 'WechatUiDeps.press_enter() -> bool（全仓唯一能把回车按下去的地方）'
+      - 'check_selector(selector) -> str / foreground_window_title() -> str / window_title_matches(declared, actual) -> bool / count_changed_pixels(before, after) -> int'
+      - 'ClickResult(target, selector, state_before, state_after, changed, pixels_changed, foreground_ok, title_ok, evidence, expect_found, at) + criteria() / is_changed()'
+      - 'CdpReader(...).click(selector, *, target="", window_title="", expect="", max_chars=4000, evidence_dir=EVIDENCE_DIR, turn_id="", polls=NAV_POLLS, pre_gate=None) -> ClickResult'
+      - 'gui_click_handler(*, target="", what="", params=None) -> ToolResult（ui_control；三条判据读数进 content，证据路径进 content）'
+      - 'wechat.read_recent(db_path, chat="", *, limit=20) -> list[dict]（认 Msg%/MSG% 表名与两套列名，取不到整张表跳过）'
+      - 'wechat.render_lines(rows) -> str（HH:MM 我/对方: 正文；换行压空格、单条截 300）'
+      - 'wechat.snapshot(chat, *, db_path=None, account_id="", limit=20, max_chars=4000) -> GuiSnapshot（读库不读界面）'
+      - 'wechat.fill_message(chat, text, *, deps=None, turn_id="", evidence_dir="data/evidence") -> FillResult（sent 恒 False；不按发送）'
+      - 'wechat.FillResult(target, chat, text_sha256, foreground_ok, title_ok, focus_ok, filled_verified, pixels_changed, evidence_before, evidence_after, at, sent=False) + as_receipt()'
+    migration: null
+    flags: 'GUI_CHANNEL: off|shadow|on（默认 off）；WECHAT_UI: off|shadow|on（默认 off，唯一会真驱动微信窗口的闸）'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_gui_input.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_gui_cdp_reader.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_gui_snapshot_tool.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_gui_click.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_gui_navigate.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_gui_wechat.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_wechat_db_read.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_wechat_current_chat.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_wechat_send_verify.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_wechat_open_strict.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_wechat_mention_picker.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_gui_uia_state.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_wechat_wake.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_external_mention.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_flag_reader_discipline.py'
+      - 'expect: 83 tri-state flags'
+      - 'cmd: 用 --remote-debugging-port=9222 起 Edge，GUI_CHANNEL=on 后读一屏'
+      - 'expect: title/url/text 非空，单屏 <=4000 字；端口没开时错误码是 not_connected'
+    notes: 读侧按真库（微信 4.x：每会话一张 Msg_<md5> 表、real_sender_id 判自己、zstd 正文、XML 念占位、
+      昵称取自 contact.db）重写并实测 7 个群 XML 泄漏 0。只读快照已接成工具 gui_snapshot（effects=read，不需要授权）：开关关着时返回 ui_blocked
+      且连端口都不摸。微信写侧（`core/execution/gui/wechat.py`）读的是解密后的明文库、不是控件树；
+      填字到「进输入框」为止，`press_enter` / `VK_RETURN` 在模块里一次都不出现（测试有静态断言）。
+       @ 一个人（`wx_chat.mention_member`）2026-10-21 真机结论：敲字不会变成 @ 对象（退格只少一个字），
+       名单是独立顶层窗口（`Qt51514QWindowToolSaveBits`）、弹窗行与 OCR 坐标尚未对齐（点「忽念」插进来「Elaina」），
+       因此这一版故意 fail closed：`mention_failed` → `send_and_verify` 判 failed 且不按回车。
+       2026-10-21 晚：改读 UIA（`ListItemControl` 的 Name + BoundingRectangle）后，`@忽念` / `@Elaina`
+       真机都能精确选中并通过 chip 验证——病因是 OCR 文本框落在行下半部，不是 DPI 错位。
+      2026-10-21 晚（第二刀）：① `@` 能写进动作串（`send:群|@名字 正文`，`core/jobs/executor.py::split_mention`）；
+      ② 控件树读屏 `gui_state`（`core/execution/gui/uia.py` + `uia_win.py`，500 节点 / 4000 字 / 只认唯一窗口；
+      实测微信 63 个节点，能看到导航按钮但没有逐条消息——内容仍只从库里读）；③ 窗口唤出
+      `wechat.wake_window()`（UIA Show → `wx_vision.activate_window` → 验 `GetForegroundWindow` 与 `IsIconic`；
+      真机 1.2 秒 `fg==hwnd`），`fill_message` 在前台不是微信时先唤、唤不出来就 `no_target` 停下。
+    rollback: GUI_CHANNEL=off / WECHAT_UI=off（默认即零副作用：不建连接、不发请求、不写表、不找窗口）
+    risk: 页面里的脚本能改 document（读到的是它想让你看的）；调试端口若暴露到公网等于交出浏览器，
+      所以端点只许本机 http(s)，且开关关着连 /json 都不摸
+  - id: U-12
+    stage: E4
+    title: 发出去之后：撤回窗口与更正（阶段 7）
+    why: 办完不等于办对。发错、说错、订错要能收回或更正；撤回窗口与更正措辞是数据形状，
+         先定形状再接判的 correct 意图，免得临时补丁长进出口。
+    files:
+      - core/speech/correction.py
+      - tests/test_correction.py
+    interfaces:
+      - 'can_revoke(receipt, *, now=None, window_s=120) -> tuple[bool, str]'
+      - 'correction_text(original, fix) -> str'
+      - 'plan_correction(receipt, fix, *, now=None) -> Correction | None'
+      - 'Correction(ref, target, text, original_excerpt, mode)'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_correction.py'
+      - 'expect: RESULT 0 failed'
+    notes: '只落地判断与措辞；撤回菜单（右键 + 菜单项）未验，接线要动判的输出契约（新增 correct 意图）。'
+    rollback: '删掉 core/speech/correction.py 与测试即可——没有任何生产调用点。'
+    risk: '最坏是「更正了一条已经在更正的消息」，造成连环更正；所以没有 ref 一律不发。'
+  - id: U-14
+    stage: E3
+    title: 旧出口的最后一段换成新出口（回执、六态、落账；含影子档）
+    why: >-
+      `core/speech/outbound.py` 是真正唯一的对外口（5 个调用点都过它），但它的最后一句话
+      是 `provider.send(...)`——发出去成不成、有没有平台消息号，只有一句 `ok` 和日志。
+      新出口（`core/speech/delivery.deliver`）有回执、六种状态、幂等键、`delivery_receipts`
+      落账。这一片只换**传输**，不换任何判定。
+    files:
+      - core/speech/legacy_bridge.py
+      - core/speech/outbound.py
+      - core/features.py
+      - tests/test_legacy_bridge.py
+      - tests/test_exit_shadow.py
+      - tests/test_env_flag_isolation.py
+    interfaces:
+      - 'legacy_via_exit_mode() -> str'
+      - 'SendOutcome(ok, msg_id, error)'
+      - 'BridgeResult(handled, outcome)'
+      - 'receipt_outcome(receipt) -> SendOutcome'
+      - 'deliver_via_exit(platform, target, text, *, kind, filepath, turn_id, chat_id, registry, ledger, dry_run=False) -> BridgeResult'
+      - 'OutboundGateway._send_via_exit_bridge(applied, target_id, context, *, turn_id) -> SendOutcome | None'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_legacy_bridge.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_exit_shadow.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      `LEGACY_VIA_EXIT` 默认 off（既有回合逐字节不变）。接是真接：`LEGACY_VIA_EXIT=on` +
+      微信适配器 `enable()` 之后，回复这条路径就会真的把字发出去（约 30 秒，跑在线程里）。
+      四种 fallback 退回旧路：别的平台 / 适配器没注册或没启用 / 种类不被自报能力支持 /
+      新出口自己炸了。今天微信只自报 `say`，所以文件与图片仍走旧路。
+      影子档（`LEGACY_VIA_EXIT=shadow`）：旧路照发，新出口只 `dry_run=True` 走一遍闸门并记一行
+      `legacy_exit_shadow`，**一律不接管传输**——一次覆盖所有走网关的调用点，不必逐站点改代码。
+    rollback: 'LEGACY_VIA_EXIT=off（默认）即逐字节回到接线前；删掉 legacy_bridge.py 与那两行调用即可。'
+    risk: '最坏是「换了传输以后同一句话被发两次」——所以桥里没有重试，且幂等键由新出口承担。'
+
+  - id: U-15
+    stage: E4
+    title: 声明式工具：加一个能力 = 加一个文件
+    why: >-
+      「能力面」的横向扩展成本现在是一次提交：加一个只会 GET 的查询类工具也要改
+      `core/tools/builtin.py`。U-15 把这条成本降到「一个 yaml」——但仍受同一套
+      留痕与默认关闭纪律约束（`effects` 只许 read / write_local，`external_send`
+      与 `ui_control` 连写都会被解析期拒掉）。
+    files:
+      - core/tools/declarative.py
+      - core/tools/builtin.py
+      - core/features.py
+      - configs/tools/example.yaml
+      - tests/test_declarative_tools.py
+      - tests/test_env_flag_isolation.py
+    interfaces:
+      - 'TOOL_DIR = "configs/tools"'
+      - 'DeclaredTool(name, spec, handler, source, enabled_in_file)'
+      - 'HttpReply(status, content_type, text, truncated)'
+      - 'DeclarativeToolError'
+      - 'load_tool_file(path, *, http_get=None) -> DeclaredTool | None'
+      - 'load_declared_tools(directory=TOOL_DIR, *, http_get=None) -> list[DeclaredTool]'
+      - 'bind_declared(registry, directory=TOOL_DIR, *, enable=False, http_get=None) -> list[str]'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_declarative_tools.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      两道闸：文件里 `enabled: true` **且** 调用点 `bind_declared(enable=True)`（默认 False）。
+      总闸 `DECLARED_TOOLS` 三态、默认 off：off 一个文件都不读；`configs/tools/example.yaml` 是唯一模板。坏文件只打
+      `declared_tool_rejected file=… reason=…`，不阻断启动。
+    rollback: 'DECLARED_TOOLS=off（默认）即一个 yaml 都不读；删掉 core/tools/declarative.py 与 builtin 里那次调用即可。'
+    risk: >-
+      最坏是「声明了一个会写外部的东西」——所以 `effects` 白名单在解析期就把
+      `external_send` / `ui_control` 拒掉，写动作只能走出口注册表与 gui 层。
+
+  - id: U-16
+    stage: E4
+    title: 交付形态：一段话可以是卡片 / 页 / 链接 / 文件
+    why: >-
+      方案发一段 `.md` 正文，手机上没法看；发一张图能看但不能编辑。交付形态决定这条消息
+      有没有用，所以它是 `plan.Artifact{kind, renderer, ttl_s}` 那一槽的实现，而不是排版偏好。
+    files:
+      - core/artifacts/__init__.py
+      - core/artifacts/render.py
+      - tests/test_artifact_render.py
+    interfaces:
+      - 'KINDS = ("text", "file", "card", "page", "link")'
+      - 'check_kind(kind) -> str'
+      - 'slugify(title, *, fallback="artifact", limit=40) -> str'
+      - 'accompany_text(title) -> str'
+      - 'render_card_png(title, body, *, width=CARD_WIDTH, max_chars=MAX_CARD_CHARS) -> tuple[bytes, bool]'
+      - 'write_card(title, body, *, out_dir=ARTIFACT_DIR, turn_id="") -> str'
+      - 'write_page(title, body, *, out_dir=ARTIFACT_DIR, turn_id="") -> str'
+      - 'to_deliver(kind, *, title, body, url, path, target, basis, out_dir, turn_id) -> DeliverItem'
+      - 'artifact_of(kind, *, renderer="", ttl_s=None) -> Artifact'
+      - 'describe(item) -> str'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_artifact_render.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      有界：卡片正文 ≤1200 字、页 ≤20000 字、卡片最多 3 页，超了标 truncated 不静默丢。
+      `file` 形态不认不存在的路径（不许伪造）。今天没有生产调用者，出口注册表里只有微信
+      适配器且它自报 `kinds={say}`，文件类投递会得到 `skipped(reason=unsupported_kind)`——如实。
+    rollback: '没有调用点：删掉 core/artifacts/ 即回到接线前。'
+    risk: >-
+      最坏是「发出去一张图，里面的字不可编辑、还会被转发」——所以卡片带伴随语与页兜底，
+      长文优先 `page`（`file`）而不是 `card`。
+
+  - id: U-17
+    stage: E4
+    title: MCP 只读工具源
+    why: >-
+      「能力面」的另一种扩展：别人已经写好的 MCP 服务器。它只能当**只读**来源——
+      服务器是外部进程，我们拦不住它内部干什么，所以 `effects` 在登记时就被强制成 read，
+      写动作与外部发送永远不经过它。
+    files:
+      - core/execution/mcp.py
+      - core/tools/builtin.py
+      - core/tools/registry.py
+      - core/features.py
+      - configs/mcp/example.yaml
+      - tests/test_mcp_tools.py
+      - tests/fixtures/fake_mcp_server.py
+      - tests/test_env_flag_isolation.py
+    interfaces:
+      - 'MCP_PROTOCOL_VERSION / CLIENT_NAME / CLIENT_VERSION'
+      - 'McpError(code, detail)'
+      - 'McpTool(name, description, input_schema)'
+      - 'Transport.request(payload, *, timeout_s) / Transport.close()'
+      - 'StdioTransport(command, *, env, cwd)'
+      - 'McpClient(transport, *, timeout_s, server).initialize() / .list_tools() / .call_tool(name, arguments) / .close()'
+      - 'McpServerSpec(name, command, env, allow_tools, deny_tools, timeout_s, enabled_in_file)'
+      - 'load_server_spec(path) / load_servers(directory=SERVER_DIR)'
+      - 'tool_specs(client, spec, *, max_tools=MAX_TOOLS) -> list[ToolSpec]'
+      - 'make_handler(client, tool_name, *, server, max_chars) -> Callable[..., ToolResult]'
+      - 'bind_servers(registry, *, directory=SERVER_DIR, enable=False, client_factory=None) -> list[str]'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_mcp_tools.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      三道闸：文件 `enabled: true` + 调用点 `bind_servers(enable=True)` + `registry.enable()`。
+      有界：服务器 ≤3、每台工具 ≤20、正文 ≤4000 字、请求 ≤8 秒；stderr 丢掉防管道卡死。
+      失败分类：McpError → timeout / isError → failed / 空 → no_result。
+    rollback: 'MCP_TOOLS=off（默认）即一台都不连；删掉 core/execution/mcp.py 与 builtin 里那次调用即可。'
+    risk: >-
+      最坏是「跑了一个我们不认识的第三方进程」——所以命令是人在 yaml 里写的、shell=False、
+      stderr 丢掉、有超时，且它拿不到写动作与投递句柄。
+  - id: U-18
+    status: done
+    stage: E4
+    title: 回合内工具调用闭环
+    why: >-
+      在此之前 `check_call(` 只出现在 registry 里、`select_for_prompt(` 只被 prompt.py 调过——
+      工具能登记、清单能进 prompt，但**没有代码去解析判说的「用 web_search」并真的调一次**。
+      这一片补的就是这一步，且不新增第二个模型点。
+    files:
+      - core/tools/turnloop.py
+      - core/terminal/turn_trace.py
+      - core/features.py
+      - agents/conversational.py
+      - tests/test_tool_loop.py
+      - tests/test_tool_scope.py
+      - tests/test_env_flag_isolation.py
+    interfaces:
+      - 'TOOL_CALLS_MAX / PURPOSE_MAX_CHARS / RESULT_MAX_CHARS / RESULTS_BLOCK_MAX_CHARS'
+      - 'ToolCall(name, purpose, args) / ToolOutcome(name, purpose, status, content, source, truncated) / ToolReport(calls, outcomes, block)'
+      - 'loop_mode() -> str'
+      - 'parse_tool_calls(payload) -> tuple[ToolCall, ...]'
+      - 'render_results(outcomes, *, max_chars=RESULTS_BLOCK_MAX_CHARS) -> str'
+      - 'run_calls(calls, *, registry=None, turn_id="") -> tuple[ToolOutcome, ...]'
+      - 'handle_verdict(payload, *, turn_id="", chat_id="", registry=None) -> ToolReport'
+      - 'consume_block(chat_id="") -> str / reset()'
+      - 'tool_scope() -> tuple[str, ...] / in_tool_scope(chat_id="") -> bool'
+      - 'record_full_detail(*, turn_id, chat_id="", decision="tool_loop", basis=None, detail=None, ts=None) -> bool'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_tool_loop.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_tool_scope.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      结果只进「下一轮」（判无状态、一回合一次模型点）；信箱是进程内单格，取一次即消失。
+      一次调用只记一次账（`observe` 内部调 `check_call`，这里不再调）。
+      留痕只写完整留痕的 `tools` 字段，不写判决行。
+      会话作用域 `YINYUE_TOOL_SCOPE_CHATS`：名单为空 = 全部（向后兼容），非空 = 只有名单内
+      才注入清单与执行工具；名单外连解析都不做，逐字走旧主干。
+    rollback: 'TOOL_LOOP=off（默认）即一行不做；删掉 core/tools/turnloop.py 与 conversational 里那次调用即可。'
+    risk: >-
+      最坏是「判说要用工具、结果下一轮没看到」——所以 `on` 档失败只记日志、绝不影响本轮判决，
+      且工具本身仍在 effects / 白名单 / 每回合 ≤2 次的原处约束下。
+  - id: U-19
+    status: done
+    stage: E4
+    title: 感官：世界面的第二投影
+    why: >-
+      判要说的「看一眼这个网页」不能只靠工具调用：前台窗口、屏幕画面、剪贴板都在这里，
+      但它们不是「外部发生」（不可回放、不唯一），所以不进账本，走世界面的第二投影。
+    files:
+      - core/senses/__init__.py
+      - core/senses/base.py
+      - core/senses/window.py
+      - core/senses/screen.py
+      - core/senses/clipboard.py
+      - core/senses/snapshot.py
+      - core/features.py
+      - agents/conversational.py
+      - tests/test_senses.py
+      - tests/test_env_flag_isolation.py
+      - tests/test_prompt_block_registration.py
+    interfaces:
+      - 'WindowInfo(title, exe, rect, focused) / ScreenShot(path, width, height, digest, taken_at) / SensorySnapshot(window, screen, clipboard, notes)'
+      - 'SensesError(code, detail) / SENSE_ERROR_CODES'
+      - 'CLIPBOARD_MAX_CHARS / TITLE_MAX_CHARS / SENSES_BLOCK_MAX_CHARS / MIN_INTERVAL_S'
+      - 'render_snapshot(snapshot, *, max_chars) -> str'
+      - 'foreground_window() -> WindowInfo'
+      - 'read_clipboard(*, max_chars) -> str'
+      - 'capture(*, out_dir, grab, taken_at, write) -> ScreenShot'
+      - 'senses_mode() -> str / collect(...) / collect_once(...) / build_block(extra) / reset_cache()'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_senses.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_prompt_block_registration.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      截图落 data/evidence/senses/（不进账本）；同画面按 sha256 指纹不重复落盘；20 秒节流。
+      off 连窗口都不读 / shadow 只记日志 / on 才截图。通知（toast）这一档没做。
+      2026-10-21 补：`[现在这一屏]` / `[在手的事]` / `[本轮可用的工具]` 三个块此前**没登记**进
+      `core/context/assembler.py::_BLOCK_POLICY` → 被标 undeclared 且按 PERSONA 永不裁，预算表对
+      它们失效。现已登记（前二 RELATION / 后二 AUX），并由 `tests/test_prompt_block_registration.py` 钉住。
+    rollback: 'SENSORY=off（默认）即一行不做；删掉 core/senses/ 与 conversational 里那次调用即可。'
+    risk: >-
+      最坏是「把用户整个桌面交给模型看」——所以默认 off、全屏截图只在人显式打开时发生，
+      且截图与块都不进账本、不进记忆。
+  - id: U-20
+    stage: E4
+    title: 配方：加一个 App = 加一个文件
+    why: >-
+      能力广度不该靠再写一个 gui_xxx 工具，而靠一份声明：加一个 App = 加一个 YAML。
+      配方只写「做什么」与「凭什么算成功」，怎么点属于 backend，所以换 harness 不用改配方。
+    files:
+      - core/execution/gui/recipe.py
+      - configs/apps/_example.yaml
+      - tests/test_app_recipes.py
+    interfaces:
+      - 'RecipeError(code, detail)'
+      - 'Step(n, do, target, text, expect, wait_s, safe_point, note)'
+      - 'Recipe(name, steps, window_title, window_class, exe, effects, enabled, version, note) + needs_motion + step(n) + as_dict()'
+      - 'parse_recipe(data, *, source="") -> Recipe'
+      - 'load_recipe_file(path) -> Recipe / load_recipes(directory=APP_DIR) -> dict[str, Recipe]'
+      - 'enabled_recipes(directory=APP_DIR) -> tuple[Recipe, ...] / describe(recipe) -> str'
+      - 'APP_DIR / MAX_STEPS / ALLOWED_DO / ALLOWED_EFFECTS / WAIT_MAX_S / EXPECT_MAX_CHARS'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_app_recipes.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      四条纪律：每步 expect 必填 / 未知字段报错 / external_send 不许进配方 / 默认不启用。
+      步号必须从 1 起连续；有 click/type 必须写窗口标识；effects 必须是步骤需要的超集。
+      执行器（按配方真走一遍）是 U-21，本片不含。
+    rollback: '删掉 configs/apps/ 与 core/execution/gui/recipe.py：没有任何调用点，行为零变化。'
+    risk: >-
+      最坏是「配方看起来能跑，其实没人执行」——所以 enabled_recipes() 今天只被测试调用，
+      文档与进度表都写明执行器未做。
+  - id: U-25
+    stage: E4
+    title: 撤回：2 分钟窗口内把话收回
+    why: >-
+      说错了要能收回，这是「说与做都留痕」的另一半：留痕能复原，撤回能止损。
+      撤回不可逆，所以整条链路 fail closed——找不到这一句、菜单里没有「撤回」、点完看不出变化，
+      一律报失败，不猜、不重试、不点第二次。
+    files:
+      - core/execution/gui/wechat_revoke.py
+      - core/execution/wx_human.py
+      - core/features.py
+      - tests/test_wechat_revoke.py
+      - core/execution/gui/wechat.py
+    interfaces:
+      - 'interfaces: recent_rows(db_path, chat, *, limit=20, account_id="") -> list[dict]'
+      - 'interfaces: _approach(impl, body, rows, *, chat, rounds=4) -> (row|None, pages, direction)'
+      - 'interfaces: _anchors(screen, rows) -> list[tuple[int,int]] / _offset(anchors) -> int|None'
+      - 'RevokeReceipt(status, detail, chat, text_sha256, menu_item, local, at) + is_revoked() + as_receipt()'
+      - 'find_row(items, text) -> tuple | None / find_menu_item(items, token="撤回") -> tuple | None'
+      - 'revoke_message(chat, text, *, deps=None, now=None, menu_wait_s=0.6, after_wait_s=1.0) -> RevokeReceipt'
+      - 'RevokeDeps(wake / open_chat / items / menu_items / click_right / click / cancel / sleep)'
+      - 'wx_human.click_menu(x, y, *, hold_ms=180)'
+      - 'wechat.message_epoch(chat, text, *, db_path=None, account_id="", limit=500) -> int | None'
+      - '_visible_span(items) -> tuple[int, int] | None / _direction_for(chat, body, items) -> int'
+      - '_find_with_scroll(impl, body, items, *, chat, pages) -> tuple[tuple | None, int, int]'
+      - 'RevokeDeps.scroll(delta) / _Deps.scroll(delta)'
+      - 'features.WECHAT_REVOKE（三态，默认 off）'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_wechat_revoke.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      菜单项只能经 UIA 读（OCR 同一份菜单三次三种结果）；坐标两套（OCR 窗口内 → 鼠标屏幕）；
+      只认正文区（左侧列表预览会误命中）；右键必须 mouse_event + 180ms（SendInput 不认）。
+      2 分钟窗口由调用侧 core/speech/correction.py::can_revoke 把关，不写进撤回里。
+      被刷走时按方向翻屏找（方向来自库里 create_time vs 屏上行首钟点），最多 3 屏，
+      翻不到或撤完都滚回原位；滚轮只在鼠标位于正文区时发。
+    rollback: 'WECHAT_REVOKE=off（默认就是 off）：撤回层一行不会跑，行为零变化。'
+    risk: >-
+      最坏是「撤回了别人那条」——所以要求屏幕上唯一命中，且菜单项必须整项等于「撤回」；
+      任何不确定都停手。点击坐标来自 UIA 矩形中心，窗口挪动后下一次调用会重新取。
+
+  - id: U-21
+    stage: E4
+    title: 换手不换工具：backend 注册表（CDP / UIA / 将来的 ADB、Vision）
+    why: >-
+      五个 GUI 工具原来各自直接 new 一个具体驱动，等于把「用哪只手」烧进了工具代码：
+      加 Vision 就得改五个工具，且不认识的名字会被静默回退成默认那只手（点错地方还以为成功）。
+      U-21 只做一张登记表：工具声明动词，注册表挑手；不认识的名字与不会的动词一律 unsupported。
+    files:
+      - core/execution/gui/backends.py
+      - tests/test_gui_backends.py
+      - core/tools/builtin.py
+      - core/features.py
+      - tests/test_gui_snapshot_tool.py
+      - tests/test_env_flag_isolation.py
+      - tests/test_turn_trace.py
+      - tests/test_flag_reader_discipline.py
+      - docs/decisions/软件适配器.md
+      - docs/重构进度.md
+    interfaces:
+      - 'VERBS = ("snapshot", "state", "click", "type_text", "navigate")'
+      - 'SAFE_DEFAULTS = ("cdp", "uia")'
+      - 'BackendInfo(name, verbs, needs=(), note="")'
+      - 'BACKENDS: dict[str, BackendInfo]'
+      - 'register(info, factory) / unregister(name)'
+      - 'infos() / describe(name="") / supports(name, verb)'
+      - 'resolve(requested="", *, verb="", default="cdp") -> str'
+      - 'reader(requested="", *, verb="", default="cdp") -> Any'
+      - 'GUI_BACKENDS = "gui_backends"'
+    flags:
+      - gui_backends
+    acceptance:
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_gui_backends.py
+        expect: RESULT 0 failed
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_gui_snapshot_tool.py
+        expect: RESULT 0 failed
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_gui_click.py
+        expect: RESULT 0 failed
+    rollback: 删 core/execution/gui/backends.py、五个 handler 改回直接 new 驱动；无数据变更、无迁移。
+    risk: >-
+      最坏是「以为选了另一只手，其实还是原来那只」——所以 resolve 不回退（未知名 = unsupported），
+      且 off 档只放行已经在跑的两只，新 backend 必须在 on 档显式打开。
+    notes: >-
+      只读先行：uia 今天只声明 state（不做点击），所以 gui_click(backend="uia") 必须当场 unsupported。
+      backend 参数暂不进工具清单（prompt 700 字预算），等第二只手真会写动词再暴露。
+  - id: U-22
+    stage: E4
+    title: 自检报告：这台机器现在能不能「看、点、发、认人」
+    why: >-
+      「跑不起来」和「跑起来会发错人」是两件事。散落的探针（六项能力、租约、库、开关）
+      只能靠人记着单独跑；U-22 把它们收成一份报告：七节各一句人话（第七节 `eyes`：她这轮真会看到的工具清单 + 最近没成的事），`➖` 明确表示没测而不是通过。
+      它只读：默认不连 CDP、不模拟按键、不写账本，所以随时可以跑，也可以在真发之前跑一次。
+    files:
+      - core/execution/gui/selfcheck.py
+      - scripts/selfcheck.py
+      - tests/test_selfcheck.py
+      - core/execution/gui/wechat.py
+      - docs/decisions/软件适配器.md
+      - docs/重构进度.md
+      - core/execution/gui/lease.py
+      - tests/test_selfcheck_eyes.py
+    interfaces:
+      - 'SECTION_NAMES = ("capability", "backends", "lease", "wechat_db", "flags", "receipts")'
+      - 'DEPENDENCIES = ((a, b, why), ...)'
+      - 'HINTS: dict[str, str]'
+      - 'Section(name, ok: bool | None, detail="", data={})'
+      - 'SelfCheckReport(sections, at) / as_dict() / text() / blocked() / section(name)'
+      - 'run_selfcheck(*, capability=..., backends=..., lease=..., wechat_db=..., flags=..., receipts=..., probe_network=False, now=None)'
+      - 'latest_row(db_path, *, account_id="", max_sessions=8) -> dict[str, Any]'
+    acceptance:
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_selfcheck.py
+        expect: RESULT 0 failed
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -m scripts.selfcheck
+        expect: 自检
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_selfcheck_eyes.py
+        expect: RESULT 0 failed
+    rollback: 删 core/execution/gui/selfcheck.py 与 scripts/selfcheck.py；无数据变更、无迁移。
+    risk: >-
+      最坏是「报告说可以，实际发错人」——所以自检只描述**我们这一侧**的状态（能力/租约/库/开关），
+      从不代表「这个会话就是对的」；会话身份永远由动手前的顶栏指纹判（target.check）。
+    notes: >-
+      没有开关：自检不改变行为，加开关只会让「为什么没自检」变成新问题。
+      capability 失败时补一句人话（窗口最小化 / UIPI / 锁屏），不让人对着 caps=111101 猜。
+  - id: U-29
+    stage: E3
+    title: 周报：把量具算成一张纸（未采集 ≠ 0）
+    why: >-
+      量具在进程内存里、回执与事件在库里，没人会去 join。周报把两边收成一张纸：发生了什么、
+      说不说、发得对不对、手有没有被卡住、事有没有办完。最要紧的一条纪律是
+      「未采集 ≠ 0」——查不到要写未采集，混成 0 会让「她从不弃权」这种结论凭空出现。
+    files:
+      - core/observability/__init__.py
+      - core/observability/weekly.py
+      - scripts/weekly_report.py
+      - tests/test_weekly_report.py
+      - docs/decisions/设备与并发.md
+      - docs/重构进度.md
+    interfaces:
+      - 'Metric(name, value: float | None, unit="", basis="", note="") / .text'
+      - 'WeeklyReport(days, at, metrics, notes) / as_dict() / markdown() / metric(name) / value(name)'
+      - 'QUIET_DECISIONS = ("abstain", "skip", "silent")'
+      - 'meta_db_path() -> str'
+      - 'build_weekly(*, days=7, now=None, engine=None, metrics=None, turn_metrics=None, receipt_metrics=None, job_metrics=None) -> WeeklyReport'
+    acceptance:
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_weekly_report.py
+        expect: RESULT 0 failed
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -m scripts.weekly_report
+        expect: 周报
+    rollback: 删 core/observability/ 与 scripts/weekly_report.py；只读，无数据变更、无迁移。
+    risk: >-
+      最坏是「报表看起来干净，其实什么都没采」——所以每格都带分母/口径，查不到写「未采集」，
+      空表写「0」并注明这一周 0 条；进程内量具重启清零也写在纸上。
+    notes: >-
+      只读拿句柄：db.write_guard.read_only_engine()。生产路径上用可写 engine 会被
+      ProductionWriteRefused 拒——报表不该有写权限，这道门是对的。
+  - id: U-31
+    stage: E3
+    title: 放行闸：L0 → L1 → L2 的判据写成一条命令
+    why: >-
+      分级放行（L0 只读 → L1 自己给自己发 → L2 测试群单条 → L3 单个真人 → L4 多会话）是这套
+      东西敢上线的前提，但判据一旦留在人脑里就会走样。stage_gate.py 把三级条件写成同一张表、
+      同一个 judge 函数，并把「下一级要做什么」印在最后。
+    files:
+      - scripts/stage_gate.py
+      - tests/test_stage_gate.py
+      - docs/decisions/设备与并发.md
+      - docs/重构进度.md
+    interfaces:
+      - 'LEVELS = ("L0", "L1", "L2") / LEVEL_STOP="停" / LEVEL_FIX="修" / LEVEL_WAIT="等" / LEVEL_PASS="过"'
+      - 'SELF_TARGETS = ("文件传输助手", "File Transfer", "文件传输", "自己")'
+      - 'rate(num, den) -> float | None（分母 0 → None，不是 0）'
+      - 'self_rows(rows, *, targets=SELF_TARGETS) -> list[dict]'
+      - 'day_of(ts) -> str / distinct_days(rows) -> list[str]'
+      - 'l1_stats(rows, *, targets=SELF_TARGETS) -> dict（sends/days/sent/unconfirmed/failed/duplicate + 三个 rate）'
+      - 'judge_l1(stats, *, log_counts=None, stale=None, ...) -> (level, msg)（停 > 修 > 等 > 过）'
+      - 'read_receipts(*, engine=None, days=7, now=None) -> list[dict] | None（None=未采集）'
+      - 'render(level, verdict, stats) -> str / main(argv) -> int'
+    acceptance:
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_stage_gate.py
+        expect: RESULT 0 failed
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -m scripts.stage_gate
+        expect: 放行判定
+    rollback: 删 scripts/stage_gate.py 与 tests/test_stage_gate.py；只读，无数据变更、无迁移。
+    risk: >-
+      最坏是「判得太宽松」——所以口径钉死三条：未采集不写 0、L1 分母只算发给自己、
+      一票否决优先于天数；L2 的抽检明确写「人签字，脚本不判」。
+    notes: >-
+      L0 结论复用 l0_glance.verdict（同一套优先级，不另写一份）；回执走
+      db.write_guard.read_only_engine()，只读。
+  - id: U-32
+    stage: E3
+    title: 开机一行：L0 还差几天（一天一行，绝不阻断启动）
+    why: >-
+      放行闸的判据在 scripts/stage_gate.py，但没人会在第 7 天记得去跑脚本——判据成了摆设
+      不是因为判据不对，是没人按。把「还差几天」推到每天第一个看见的位置（启动日志）。
+    files:
+      - core/observability/startup.py
+      - tests/test_startup_note.py
+      - scheduler/main.py
+      - docs/decisions/设备与并发.md
+      - docs/重构进度.md
+    interfaces:
+      - 'DUE_DATE = "2026-10-27" / MIN_DAYS = 7 / MARKER = data/.daily_note'
+      - 'days_left(due=DUE_DATE, *, today=None) -> int'
+      - 'note_text(*, today=None, due=DUE_DATE, min_days=MIN_DAYS) -> str'
+      - 'read_marker(path=MARKER) -> str / mark(path=MARKER, *, today=None) -> bool'
+      - 'daily_note(*, today=None, marker=MARKER, due=DUE_DATE, min_days=MIN_DAYS, write=None, log_fn=None) -> str'
+      - 'startup_note(**kw) -> str（吞掉一切异常，永不阻断启动）'
+    acceptance:
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_startup_note.py
+        expect: RESULT 0 failed
+    rollback: 删 core/observability/startup.py 与 scheduler/main.py 里那 6 行 try 块；无数据变更。
+    risk: >-
+      最坏是把启动搞挂——所以入口吞掉一切异常；其次是「一天写很多行」——所以用 marker 去重；
+      最后是日期漂移——所以与 l0_glance 有 DUE_DATE/MIN_DAYS parity 断言。
+    notes: >-
+      只碰 data/.daily_note 一个文件，不碰库、不碰锁、不发消息。
+  - id: U-33
+    status: superseded
+    stage: E3
+    title: 出口接管第一个调用点 owner_ask（双跑对照 → 等价测试 → 删旧）
+    why: >-
+      R3 要成立，缺的不是「新出口能发」，而是旧调用点一个个让位。第一个选最窄的
+      core/execution/owner_ask.py（只有一处 gateway.send_text），用来把套路定死：
+      off/shadow 时旧路逐字不变、shadow 只多一行比对日志、on 时旧路一条不走。
+    files:
+      - core/execution/owner_ask.py
+      - tests/test_owner_ask_exit.py
+      - docs/decisions/出口.md
+      - docs/重构进度.md
+    interfaces:
+      - 'owner_exit_mode() -> str（唯一读点：DELIVERY_CONTRACT）'
+      - 'exit_items(text, chat_id) -> list[DeliverItem]（kind=say / basis=owner_ask）'
+      - 'send_via_exit(*, chat_id, text, turn_id="", dry_run=False, deliver_fn=None, registry=None) -> Receipt | None'
+      - 'send_owner_question(target, text) -> tuple[bool, str]（三档分流）'
+      - '_send_legacy(target, body) -> tuple[bool, str]（旧路，仅在 off/shadow 使用）'
+    acceptance:
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_owner_ask_exit.py
+        expect: RESULT 0 failed
+      - cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_guess_grade.py
+        expect: passed
+    rollback: 删 §5.9 与 tests/test_owner_ask_exit.py，把 owner_ask.py 回退到单一 send_text 路径。
+    risk: >-
+      最大风险是「同一条发两遍」——所以 on 分支里 return 得比旧路早，且 on 档失败不回落；
+      shadow 档出口恒 dry_run=True，物理上发不出去。
+    notes: >-
+      shadow 档的 exit_status=blocked/adapter_disabled 是正常的（登记未启用）；要盯的是
+      「旧路成功而出口 failed」。
+  - id: U-30
+    stage: E3
+    title: 设备与并发第 1 段：租约 / 目标 / 元素表（六步已落地，第 5 步已接进动手路径）
+    why: >-
+      上面所有「点一下、打一句、发一条」都在假定「手是空的、屏幕是我看到的那个」。
+      这段把假定变成机器检查：拿不到手就不动手，前台不是目标就不动手，元素不唯一就不敢动。
+      它是跑 L0（只读）之前唯一必须有的写侧基建，验收靠静态检查与单测，不靠真机运气。
+    files:
+      - 'core/execution/gui/lease.py'
+      - 'core/execution/gui/elements.py'
+      - 'core/execution/gui/target.py'
+      - 'core/execution/gui/capability.py'
+      - 'core/execution/gui/metrics.py'
+      - 'core/execution/gui/wechat.py'
+      - 'core/execution/wx_chat.py'
+      - 'scripts/lease_probe.py'
+      - 'tests/test_device_lease.py'
+      - 'tests/test_element_table.py'
+      - 'tests/test_current_target.py'
+      - 'tests/test_capability_probe.py'
+      - 'tests/test_device_lease_wiring.py'
+      - 'tests/test_device_metrics.py'
+      - 'scripts/l0_glance.py'
+      - 'tests/test_l0_glance.py'
+      - 'docs/decisions/设备与并发.md'
+    interfaces:
+      - 'device_lease(resource, owner, *, ttl=60.0, hard_ttl=120.0, wait_s=8.0) -> Lease'
+      - 'Lease.acquire() / release() / heartbeat() / is_expired() / holder()'
+      - 'UiBusy(holder) / CapabilityMissing(reason)'
+      - 'CurrentTarget(platform, handle, pid, exe, title, rect, identity, fingerprint, generation, owner, verb, since)'
+      - 'acquire(scope, chat) -> CurrentTarget / check(target) -> None'
+      - 'Element(name, role, rect, source, window, confidence)'
+      - 'ElementTable.find(name, *, role=None, window=None) -> list[Element] / unique(...) -> Element | None'
+      - 'scan_once() -> ScanResult'
+      - 'probe() -> CapabilityReport / require(report) -> None'
+      - 'device_guard(owner, *, resource="input") -> contextmanager（off 档一行不执行）'
+      - 'bump(name, **fields) -> int / counts() / p90(name) / snapshot()（METRIC_NAMES 五项白名单）'
+      - 'plan_round(chat_id, *, store, now) -> ServiceRound'
+      - 'clear_message_box(window=None) -> bool（Ctrl+A + Delete + 回读确认）'
+      - '_clear_dirty_composer(impl, *, chat) -> bool（清不掉就 GuiError("blocked")）'
+      - '_guard_depth() -> int（文件锁不可重入：门内再进直接 yield None）'
+      - 'send_and_verify(...)：填字与按回车包在同一段租约内，落盘回读在门外'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_device_lease.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_current_target.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u scripts/check_docs_consistency.py'
+      - 'expect: 全绿'
+      - 'cmd: python -X utf8 -u tests/test_device_lease_wiring.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_element_table.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_capability_probe.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_device_metrics.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u scripts/check_topology.py'
+      - 'expect: PASSED'
+      - 'cmd: python -X utf8 -u tests/test_l0_glance.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      设计在 docs/decisions/设备与并发.md（v0.1）。本切片只做 4.1/4.2/4.3 与 5.1/5.2：
+      资源表 + all-or-nothing + hard_ttl + 六项能力自检 + 目标与元素表。
+      调度（EDF/配额/合并窗口）按文档第 8 节只留接缝，不在本片。
+      前四步（租约/元素表/目标/能力自检）与量具零调用点；第 5 步已接进
+      `core/execution/gui/wechat.py::fill_message` 与 `core/execution/gui/wechat_send.py::send_and_verify`，
+      但由 `DEVICE_LEASE`（默认 off，`.env` 现为 shadow）控制——off 档一行不执行。
+      第 5 步·续（用户批准）：把「按回车」纳入同一段租约，并补脏输入框清理；
+      落盘回读（15–30 秒）仍在门外，不持锁等平台。
+    rollback: '把 DEVICE_LEASE 改回 off（`.env` 删掉该行即默认 off）→ 租约与自检一行不执行；
+      脏输入框清理不受开关控制（WECHAT_UI=on 即生效），要整体回退用 git revert 本切片。'
+    risk: >-
+      最坏是「底座写好了但没人用，看起来像有了」——所以文档与进度表都写「零实现」，
+      真接进动手路径要另开切片并重新过 8 道关口。
+  - id: U-26
+    status: done
+    stage: E3
+    title: 更正收口（从一条已发回执生成改口；窗口内先撤再改）
+    why: >-
+      说错了要能改，且改口本身要留账、要能算「改口率」。更正不是新结果态——它就是一条普通消息，
+      只是措辞带前缀；窗口内可以顺手先把原话撤回。四条 fail closed：没有原回执 / 改口为空 /
+      连环改口 / 开关未开，一律一个字节都不发。
+    files:
+      - core/speech/correction.py
+      - core/jobs/executor.py
+      - core/routing/turn_pipeline.py
+      - core/features.py
+      - core/terminal/delivery_receipts.py
+      - 'tests/test_correction_exec.py'
+      - tests/test_env_flag_isolation.py
+      - tests/test_flag_reader_discipline.py
+      - tests/test_batch_b_acceptance.py
+      - tests/pytest_style/test_search_deepseek.py
+    interfaces:
+      - 'CorrectionResult(ok, mode, status, text, reason, receipt) + as_receipt()'
+      - 'correct(receipt, fix, *, deliver=None, revoke=None, ledger=None, recorder=None, chat_id="", turn_id="", now=None, mode=None) -> CorrectionResult'
+      - 'correct_ref(ref, fix, *, ledger=None, deliver=None, revoke=None, recorder=None, chat_id="", turn_id="", now=None, mode=None) -> CorrectionResult'
+      - 'is_correction(receipt) -> bool / correction_mode() / REASON_OFF|NO_RECEIPT|NO_PLAN|ALREADY|DELIVER_FAILED'
+      - 'delivery_receipts.make_ledger(...).find_ref(ref) -> dict | None'
+      - 'write_executor(..., correct=None, allow_external=False) 认 correct:<回执号>|<改口>'
+      - 'turn_pipeline._correction_sender() -> Callable[[str, str], dict] | None'
+      - 'features.CORRECTION（三态，默认 off，第 91 个）'
+    migration: null
+    flags:
+      - 'CORRECTION（三态，默认 off；kill_date 2027-12-31）'
+    acceptance:
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_correction.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_correction_exec.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_job_external_send.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      与撤回的分工：撤回是「把话拿回来」（有 2 分钟硬窗），更正是「补一句对的」（任何时间都能做）。
+      撤回失败不阻断更正；更正失败不重试（重试会产生第二条改口）。
+      `can_revoke` 只决定「先不先撤」，不决定「改不改」。
+    rollback: 'CORRECTION=off（默认就是 off）：correct() 直接返回 REASON_OFF，执行器收到 no_sender，行为零变化。'
+    risk: >-
+      最坏是「把改口发到了错的会话」——所以 `correct` 只认一条已有回执的 target（不让人临时改目标），
+      且必须过 `external_send` 的同一把钥匙（确认档）；没有回执号就一个字节都不发。
+  - id: U-27
+    status: done
+    stage: E3
+    title: 授权撤销（一句「以后都问我」把长期授权当场作废）
+    why: >-
+      长期授权是「以后这类事我自己办」，它必须能被一句话收回，否则一次点头就是永久的。
+      撤回只动 policy（把 expires_at 钉到此刻），不动「在等」的状态，也不替人推进或取消任何一步。
+    files:
+      - core/jobs/approval.py
+      - core/jobs/store.py
+      - core/routing/turn_pipeline.py
+      - tests/test_grant_revoke.py
+    interfaces:
+      - 'live_grant(job, *, now=None) -> Policy | None'
+      - 'parse_revoke_grant(text, *, is_private, speaker_id="", owner="", job=None, now=None) -> str'
+      - 'record_revoke(job, *, store=None, who="", reason="", now=None) -> bool'
+      - 'apply_revoke_grant(text, *, chat_id, is_private, speaker_id="", store=None, now=None) -> list[Policy]'
+      - 'REVOKE_TOKENS / KEEP_TOKENS / MAX_REVOKE_CHARS'
+      - 'EVENT_KINDS += "grant_revoked"（payload: policy / revoked_policy / who / reason）'
+    migration: null
+    flags: null
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_grant_revoke.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_grant.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_approval.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      撤回 = 把 expires_at 设成 now-1s，所以 `grant_allows()` 返回 `grant_expired`——
+      理由文案仍沿用「授权已过期」，事件 kind 负责区分「到期」与「人撤的」。
+      两件都还有效时一句都不撤（不猜）；撤权不动 awaiting 状态。
+    rollback: '回滚 = git revert 本切片；`grant_revoked` 只是新增 kind，旧代码读到未知 kind 会忽略（EVENT_KINDS 校验在写入侧）。'
+    risk: >-
+      最坏是「把别人的授权撤了」——所以只认私聊本人、只撤该会话里唯一一张有效票；
+      两件都有票就一句都不撤。
+  - id: U-28
+    status: done
+    stage: E3
+    title: 交接单（办不下去时给人「做到哪 / 还差什么 / 你要动哪里」）
+    why: >-
+      一件事走不下去时，出口只说「抱歉我没办成」等于把三样东西都丢了：哪些已经做完、
+      剩下要做什么、他能从哪儿接着干。交接单把这三样写成数据（槽 ④ handoff），
+      于是「交接率」成为可算的量具，而不是一句体感。
+    files:
+      - core/jobs/handoff.py
+      - core/jobs/store.py
+      - core/features.py
+      - core/routing/turn_pipeline.py
+      - tests/test_job_handoff.py
+    interfaces:
+      - 'HANDOFF_STOPS = ("budget", "turns", "failed", "no_executor", "blocked")'
+      - 'HANDOFF_WHY: dict[str, str]'
+      - 'should_handoff(stop, job=None) -> bool'
+      - 'remaining_steps(job, limit=MAX_ITEMS) -> list[str]'
+      - 'prefilled_fields(job, limit=6) -> tuple[str, ...]'
+      - 'build_handoff(job, *, reason, url="", screenshots=(), note="") -> Handoff'
+      - 'handoff_text(job, handoff, *, reason) -> str'
+      - 'handoff_markdown(job, handoff, *, reason, detail="") -> str'
+      - 'write_handoff(job, markdown, *, out_dir=None) -> str'
+      - 'record_handoff(job, handoff, *, store=None, reason="", detail="") -> bool'
+      - 'apply_handoff(stop, job, *, store=None, detail="", note="", url="", screenshots=()) -> str'
+      - 'EVENT_KINDS += "handed_off"（payload: reason / handoff / steps_left / text）'
+    migration: null
+    flags: HANDOFF
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_job_handoff.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_job_tick_wiring.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      三档：off 一行都不算 / shadow 只算文本写日志 / on 才落 handed_off 并进 extra["job_handoff"]。
+      交接单只换 handoff_json，不动 state、step_n、awaiting——人接手由下一次 advance 往前走。
+      落盘 data/handoff/<job_id>.md 供出口当 kind=file 发。
+    rollback: '回滚 = git revert 本切片；`handed_off` 是新增 kind，旧投影读到未知 kind 会忽略。'
+    risk: >-
+      最坏是「办成了还说没办成」——所以 `done` 明确不在 HANDOFF_STOPS 里，且措辞禁令
+      （不出现「已完成 / 已办 / 我等你确认」）由 15 个生成文本组合逐一断言。
+  - id: U-34
+    title: 会话分窗（平台 + 账号 + 会话三元组）
+    stage: E3
+    why: >
+      `chat_id` 只在 (平台, 账号) 里唯一。多账号或接第二个平台时，只按 chat_id 分窗会把
+      两个账号在同一个群的视角合并成一份——这是"看错世界"，比发错更隐蔽。
+    files:
+      - core/context/chat_window.py
+      - tests/test_conversation_partition.py
+      - docs/decisions/世界窗口.md
+    interfaces:
+      - 'conversation_key(platform: str, account_id: str, chat_id: str) -> str'
+      - 'split_conversation_key(key: str) -> tuple[str, str, str]'
+      - 'load_messages(chat_id, *, days=..., now=None, platform="", account_id="", engine=None)'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_conversation_partition.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      `platform` / `account_id` 默认空串 = 存量语义（只按 chat_id，逐字节不变）。
+      这一步只把「可以分」变成「能分」；真正传参在接第二个账号或第二个平台时做，
+      否则等于凭空加一层过滤。
+    rollback: '两个新参数留空即回到接线前行为；`conversation_key` 是纯函数，无副作用。'
+    risk: >-
+      现有 5 个调用点（admission / chat_window / room_state / world_state / router）都还没传
+      platform/account。风险不在代码而在误判：以为已经分了，其实还是只按 chat_id。
+  - id: U-35
+    title: 身份键闸（会话只按会话、人只按人）
+    stage: E3
+    why: >
+      同一句「记得你」和「这话在哪说的」是两把键。混用一次，她会把私聊内容拿到群里讲——
+      这是隐私事故；另一种混用是两个账号在同一个群被合并成一份视角。
+    files:
+      - scripts/check_identity_keys.py
+      - tests/test_check_identity_keys.py
+      - core/context/chat_window.py
+      - core/identity/platforms.py
+      - core/contracts/legacy.py
+      - docs/decisions/世界窗口.md
+    interfaces:
+      - 'conversation_key(platform: str, account_id: str, chat_id: str) -> str'
+      - 'split_conversation_key(key: str) -> tuple[str, str, str]'
+      - 'chat_type_checked(platform: str, chat_type: str = "", chat_id: str = "") -> ChatType'
+      - 'mismatch_counts() -> dict[tuple[str, str, str], int]'
+      - 'load_messages(chat_id, *, days=..., now=None, platform="", account_id="", engine=None)'
+    acceptance:
+      - 'cmd: python -X utf8 scripts/check_identity_keys.py'
+      - 'expect: PASSED'
+      - 'cmd: python -X utf8 -u tests/test_check_identity_keys.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      四条静态规则 + 一条运行时 parity。人+会话同键的白名单有三张表，每条都写了理由；
+      utterance_edges 缺 bot_account_id 是已知缺口，登记在 KNOWN_MISSING_ACCOUNT 里，
+      修好（重建唯一索引的迁移）后删掉那一行。
+    rollback: '纯新增检查器与测试；chat_type_checked 与原逻辑等价（字段优先、形状兜底），只是多了计数与告警。'
+    risk: >-
+      规则 A 只覆盖 core/context/，脚本与测试里的全局读不拦（那些是有意的全库统计）。
+      规则 D 的已知缺口仍在，多账号接入前必须先迁移，否则同群同消息会撞键。
+  - id: U-36
+    title: 身份键补全 + 窗口自动定档
+    stage: E3
+    owner: identity
+    why: >-
+      `utterance_edges` 的唯一键缺 `bot_account_id`：多账号同群同消息会撞键，
+      撞了就是静默丢一行且丢的是"谁看到的"。窗口读侧同理——`chat_id` 只在
+      (平台, 账号) 里唯一，只按 chat_id 分窗会在多账号/多平台时串。
+    files:
+      - db/meta_models.py
+      - db/migrations.py
+      - scripts/check_identity_keys.py
+      - core/context/chat_window.py
+      - tests/test_conversation_partition.py
+      - docs/decisions/世界窗口.md
+    interfaces:
+      - 'resolve_scope(chat_id, *, since=None, engine=None) -> tuple[str, str, str]'
+      - 'UniqueConstraint("platform", "bot_account_id", "chat_id", "msg_id")'
+      - '_m066(conn, insp) -> None  # 重建 ux_utterance_edge_msg'
+    notes: >-
+      自动定档三档：`single` 按该视角过滤 / `ambiguous` 不过滤并发
+      `window_scope_ambiguous` 告警 / `none` 不加条件；显式传
+      `platform`/`account_id` 永远赢。歧义只准出现在日志里，不准出现在数据里。
+      迁移 66 已对生产库执行（先备份 `backups/meta_before_m066_20261021.db`）。
+    acceptance:
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_conversation_partition.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_utterance_edges.py'
+      - 'expect: ALL PASSED'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 scripts/check_identity_keys.py'
+      - 'expect: 已知缺口 0 条'
+    rollback: >-
+      `git revert` 本切片；库侧需先删"同群同消息、不同账号"的重复行再按旧三元组重建索引。
+    risk: >-
+      自动定档在"一个会话中途换账号"时会退化成不过滤（超集），
+      此时窗口比应有的大——宁可多噪音也不丢消息；要定死就显式传参。
+
+  - id: U-37
+    title: 回执后台补账 + 出口作用域闸
+    stage: E4
+    why: >-
+      微信落盘 26 秒，同步等回执会让每条回复白慢 2-5 秒，且照样是 unconfirmed；
+      而"让新出口接管传输"在没有会话闸时会顺带切走所有群。
+    files:
+      - core/execution/wx_sender.py
+      - core/execution/wechat_adapter.py
+      - core/terminal/delivery_receipts.py
+      - core/speech/legacy_bridge.py
+      - 'tests/test_ack_async.py'
+      - tests/test_outbound_receipt.py
+      - tests/test_receipt_no_dup.py
+    interfaces:
+      - 'ack_after_send(who, msg, baseline, *, polls=1, interval_s=...) -> dict'
+      - 'spawn_ack_backfill(who, msg, baseline) -> bool'
+      - 'update_pending_ack(target, *, ack, platform_msg_id="", client_msg_id="", window_s=180.0) -> int'
+      - 'exit_scope() -> tuple[str, ...] / in_exit_scope(chat_id) -> bool'
+      - 'wechat.display_name_for(chat) -> str（地址 → 显示名，查不到原样返回）'
+      - 'adapter_enable_env() -> bool / default_registry() 以启用态构建'
+      - 'reset_default_registry() -> None（测试用）'
+    acceptance:
+      - 'cmd: python -X utf8 -u tests/test_ack_async.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_outbound_receipt.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u tests/test_receipt_no_dup.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      补账只动 ack / 两个消息号 / detail 后缀，status 与 kind 一个字不改（补账不许改判）；
+      回读只做增量，绝不触发全量解密；出口名单为空 = 不设限（向后兼容）。
+    rollback: >-
+      回退这三处改动即回到"发完同步回读"；不涉及迁移，不涉及数据形状。
+    risk: >-
+      后台线程最多 4 个并发；线程内一切异常都吞掉只记日志（回执是旁注）。
+  - id: U-38
+    title: 真机驱动一件「在手的事」
+    stage: E3
+    why: >-
+      判 → 一件事 的总闸（audit_verdict_contract）在旧 pipeline 里没有调用点，模型还不输出判决 JSON，
+      所以台账/推进器/批准闸/回执/读数这段机械在真机上一次都没通电。先用一个操作员脚本把这段点亮、
+      把断点暴露出来，再谈改模型输出形态。
+    files:
+      - scripts/job_drive.py
+      - scripts/audit_extra_contract.py
+      - tests/test_extra_contract_keys.py
+      - core/jobs/plan_block.py
+      - tests/test_plan_block.py
+      - core/jobs/planner.py
+      - tests/test_job_planner.py
+    interfaces:
+      - 'main(argv) -> int'
+      - '_payload(goal, *, live=False) -> dict'
+      - '_goal(template, tag) -> str（同目标第二次跑会命中上一件，故每次换 tag）'
+      - 'Recorder.__call__(step) -> dict（假执行器，不动真机）'
+    acceptance:
+      - 'cmd: python -X utf8 -u scripts/job_drive.py --help'
+      - 'expect: 真机驱动一件'
+      - 'cmd: python -X utf8 -u tests/test_extra_contract_keys.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: python -X utf8 -u scripts/audit_extra_contract.py'
+      - 'expect: PASSED'
+      - 'cmd: python -X utf8 -u tests/test_plan_block.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      只新增操作员脚本，不改任何生产分支；写生产库必须显式 --allow-production（入口声明
+      declare_writes_allowed）。演示载荷的副作用步一律只读工具配 ui_control 档（act() 当场拒绝），
+      保证「批准闸放行」被证明而真机不被操作。
+    rollback: >-
+      删掉 scripts/job_drive.py 即回到原状；不涉迁移、不涉数据形状（台账行留在库里，append-only）。
+    risk: >-
+      它是唯一会往生产库 jobs/job_events/job_approvals 写行的脚本；误跑会在某个会话里留下一件
+      「等批准」的事（feed 会给判看到的读数），发现后在台账追加 cancelled 事件即可。
+
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_job_planner.py'
+      - 'expect: RESULT 0 failed'
+
+  - id: U-39
+    title: 新主干 M0：唯一回合入口骨架 + 三道可达性闸
+    stage: E2
+    why: >-
+      真机证明病根是「两条主干、新能力装在没人走的那条上」，且没有任何闸检查可达性。
+      M0 不改行为，只让「这一步跑了吗」变成可读日志，并把三条纪律变成机器检查。
+    files:
+      - 'core/turn/__init__.py'
+      - 'core/turn/steps.py'
+      - 'core/turn/trace.py'
+      - 'core/turn/entry.py'
+      - 'scripts/check_turn_reachability.py'
+      - 'scripts/check_no_silent_return.py'
+      - 'scripts/check_single_catalog.py'
+      - 'tests/test_turn_skeleton.py'
+      - 'tests/test_turn_gates.py'
+      - 'docs/新主干设计.md'
+    interfaces:
+      - 'core.turn.steps.STEP_NAMES = (ingest, read, judge, record, act, say, receipt, metrics, finish)'
+      - 'core.turn.steps.is_step(name) -> bool'
+      - 'core.turn.steps.order_of(name) -> int'
+      - 'core.turn.trace.begin(*, chat_id="", turn_id="") -> TurnTrace'
+      - 'core.turn.trace.TurnTrace.step(name, *, status="ok", note="", ms=None) -> None'
+      - 'core.turn.trace.TurnTrace.missing() -> list[str]'
+      - 'core.turn.entry.run_turn(ctx, *, handlers_map=None) -> TurnResult'
+      - 'core.turn.entry.register(name, handler, *, replace=False) -> None'
+      - 'core.turn.entry.TurnResult(chat_id, turn_id, status, done, failed, note, ms)'
+      - 'scripts/check_turn_reachability.scan(root) -> list[str]'
+      - 'scripts/check_no_silent_return.scan(root) -> list[str]'
+      - 'scripts/check_single_catalog.scan(root) -> list[str]'
+    acceptance:
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_turn_skeleton.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_turn_gates.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u scripts/check_turn_reachability.py'
+      - 'expect: PASSED'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u scripts/check_no_silent_return.py'
+      - 'expect: PASSED'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u scripts/check_single_catalog.py'
+      - 'expect: PASSED'
+    notes: >-
+      纯新增：不 import 旧主干、不改任何现有行为、不接任何出口。九步顺序即纪律，
+      某步异常后面不再跑但 finish 一定跑（fail-closed + 资源释放）。
+    rollback: >-
+      删除 core/turn/ 与三个 scripts/check_*.py 即回到原状；无迁移、无数据形态变化。
+    risk: >-
+      风险是「以为接了其实没接」——所以 M0 只立骨架与闸，不声明任何能力已通电；
+      M1 起每刀都必须在同一提交里删旧代码，否则视为未完成。
+
+  - id: U-40
+    title: 新主干 M1：归一 + 判读五标量 + 六行矩阵（shadow）
+    stage: E2
+    why: >-
+      形式与意图解耦：形式只决定「要不要先看/听/读」，永不决定「怎么应对」。
+      风险与在场由代码从 effects 与聊天类型算，模型只回答「他要什么」。
+    files:
+      - core/intake/__init__.py
+      - core/intake/observation.py
+      - core/intake/normalize.py
+      - core/verdict/__init__.py
+      - core/verdict/reading.py
+      - core/verdict/risk.py
+      - core/verdict/matrix.py
+      - core/verdict/shadow.py
+      - tests/test_intake_verdict.py
+    interfaces:
+      - 'core.intake.normalize.normalize(src) -> Observation'
+      - 'core.intake.observation.Observation(where, chat_id, by, form, text, media, quoted, mention_to_me, system, at)'
+      - 'core.verdict.reading.parse_reading(payload) -> Reading | None'
+      - 'core.verdict.reading.build_reading_prompt(obs, *, capability_hint="") -> list[dict]'
+      - 'core.verdict.risk.risk_of(effects) -> int'
+      - 'core.verdict.risk.others_of(obs, risk=0) -> int'
+      - 'core.verdict.matrix.decide(reading, *, risk=0, others=0, capability=True) -> Decision'
+      - 'core.verdict.shadow.compare(*, old_intent, decision, chat_id="", where="", old_would_reply=None) -> bool'
+    acceptance:
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_intake_verdict.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_verdict_shadow_wiring.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u scripts/check_no_silent_return.py'
+      - 'expect: PASSED'
+    notes: >-
+      纯新增 + 一处只记日志的接线（try/except 包裹）。影子档只对照「旧意图 vs 矩阵结论」；
+      quotes/slots 要等 M2 才为真，因此 do 现在不会被点亮，这是有意的。
+    rollback: >-
+      删除 core/intake/ 与 core/verdict/，并回退 core/context/intent.py 那一段 try 块即可；
+      无迁移、无数据形态变化、不影响任何出口。
+    risk: >-
+      风险是「影子档吵」——每回合多一行日志；已限制为一行且只 info 级别。
+      更大的风险是被误当成已接管：M1 不改变任何对外行为。
+
+  - id: U-41
+    title: 新主干 M3 第一刀：模型可见工具名单唯一属主
+    stage: E2
+    why: >-
+      「模型看得见什么」与「什么能在计划里自动执行」曾各写一份，于是她说
+      「我没有往群里发消息的工具」。名单收归一处，别处只许别名 re-export。
+    files:
+      - core/tools/catalog.py
+      - agents/planner.py
+      - scripts/check_single_catalog.py
+      - tests/test_tool_catalog_single.py
+    interfaces:
+      - 'core.tools.catalog.PLAN_LOOP_ALLOWED: frozenset[str]'
+      - 'core.tools.catalog.PLAN_LOOP_READ_ONLY: frozenset[str]'
+      - 'core.tools.catalog.allowed_in_plan(name) -> bool'
+      - 'core.tools.catalog.read_only_in_plan() -> frozenset[str]'
+    acceptance:
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_tool_catalog_single.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u scripts/check_single_catalog.py'
+      - 'expect: PASSED'
+    notes: >-
+      纯搬迁 + 一条新闸规则：agents/planner.py 的白名单字面量被别名替换，四个使用点
+      行为不变；规则 C 允许别名 re-export，只禁自造字面量。
+    rollback: >-
+      把常量搬回 agents/planner.py 并删掉规则 C 即可；无迁移、无行为变化。
+    risk: >-
+      风险是「名单收归一处后忘了加新工具」——所以 allowed_in_plan() 是唯一判定入口，
+      新工具默认不放行（fail closed）。
+
+  - id: U-42
+    title: 新主干 M3 第二刀：工具调用唯一入口 + 目录覆盖影子
+    stage: E2
+    why: >-
+      真机里「工具能登记、清单能进 prompt，但没人真调」曾经同时有两条调用路径。
+      新代码只许走 invoke()，并用 covered 影子量化「模型侧 18 个工具还差多少」。
+    files:
+      - core/tools/invoke.py
+      - agents/base.py
+      - tests/test_tool_invoke_single.py
+    interfaces:
+      - 'core.tools.invoke.invoke(registry, name, params=None, *, turn_id="", target="", mode="auto") -> ToolResult'
+      - 'core.tools.invoke.catalog_names() -> frozenset[str]'
+      - 'core.tools.invoke.covered_by_catalog(name) -> bool'
+    acceptance:
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_tool_invoke_single.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      纯新增 + 一行影子日志（try/except，structlog 用 f-string）。不认识的效果按读处理、
+      查不到 spec 直接抛；covered=0 就是模型侧工具迁移的待办清单。
+    rollback: >-
+      删除 core/tools/invoke.py 并回退 agents/base.py 那 7 行 try 块即可；无行为变化。
+    risk: >-
+      风险是「影子日志把 structlog 打成 positional_args」——已在代码注释与测试里钉死
+      （必须 f-string）。
+
+  - id: U-43
+    title: 新主干 M3 第三刀：模型侧 23 个工具声明收归同一份目录
+    stage: E2
+    why: >-
+      模型侧 23 个工具、执行器侧 10 个、交集 5 个——「她会不会用某个工具」取决于问的是
+      哪份清单。声明收归一处（数据），实现与绑定留在 agents 侧（layering 规则 10）。
+    files:
+      - core/tools/declared.py
+      - core/tools/builtin.py
+      - tests/test_tool_declared_catalog.py
+    interfaces:
+      - 'core.tools.declared.DECLARED: tuple[tuple[str, str, str], ...]'
+      - 'core.tools.declared.declared_specs() -> tuple[ToolSpec, ...]'
+      - 'core.tools.declared.declared_names() -> frozenset[str]'
+    acceptance:
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_tool_declared_catalog.py'
+      - 'expect: RESULT 0 failed'
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u tests/test_tool_invoke_single.py'
+      - 'expect: RESULT 0 failed'
+    notes: >-
+      只声明不实现：处理器仍由 agents 侧 bind()。对外发送一律登记 external_send；
+      register() 的返回值必须检查（validate 缺 returns/owner 会静默失败）。
+    rollback: >-
+      删除 core/tools/declared.py 与 build_registry 里那 12 行汇入块即可；无行为变化。
+    risk: >-
+      风险是「声明与实现漂移」——所以测试断言「模型侧每个工具名都必须在目录里」，
+      新增工具不登记会当场红。
+
+  - id: U-44
+    status: done
+    title: 回合入口唯一化（定义唯一 / 调用登记 / 旧入口标 LEGACY / act 轨迹可读）
+    stage: E2
+    why: >-
+      能力装在旧入口 generate_turn 上，真人消息走 agentic 回合，于是记账入口从未被调用，
+      「主人回可以没人听」查了很久。把「只有一条路」变成可执行断言。
+    files:
+      - scripts/check_turn_entry.py
+      - core/routing/turn_pipeline.py
+      - docs/新主干设计.md
+    interfaces:
+      - 'scripts.check_turn_entry.main() -> int'
+    acceptance:
+      - 'cmd: .venv_it\Scripts\python.exe -X utf8 -u scripts/check_turn_entry.py'
+      - 'expect: PASSED'
+    notes: >-
+      只读闸（不 import core）。ALLOWED_CALLERS 当前 2 处：旧 generate_turn（LEGACY，待删）
+      与 agents/conversational.py（真人路径）。新增第三条路必须显式登记，登记即评审。
+    rollback: >-
+      删除 scripts/check_turn_entry.py 与 turn_pipeline.py 里两行 LEGACY 注释即可。
+    risk: >-
+      风险是「登记表变成橡皮章」——所以 R1/R3/R4 不依赖登记表，只有 R2 用它。

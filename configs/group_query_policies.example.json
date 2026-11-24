@@ -1,0 +1,12 @@
+{
+  "_comment": "Phase 0 shadow group-command query policy. Copy to configs/group_query_policies.json. Default is disabled. The switch controls whether the query tool may read that group's command data for non-owner requesters; owner audit is always unrestricted.",
+  "policies": [
+    {
+      "platform": "wechat",
+      "bot_account_id": "yinyue_account_a",
+      "group_id": "123456789@chatroom",
+      "enabled": false,
+      "time_range_days": null
+    }
+  ]
+}

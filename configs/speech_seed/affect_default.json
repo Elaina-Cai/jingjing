@@ -1,0 +1,90 @@
+{
+  "_readme": [
+    "心境模块的通用默认配置。它不针对任何具体角色：文案里没有名字、没有称谓、",
+    "没有特定口癖，任何陪伴角色都能直接用。",
+    "",
+    "想贴合某个角色，不要改这个文件，改它的覆盖文件 affect_<角色key>.json；",
+    "两者会合并，后者只写差异。角色 key 取自人设种子里的 \"key\" 字段。",
+    "",
+    "改完无需重启：加载器按文件修改时间判断，下一轮回复即生效。",
+    "文件缺失、JSON 写坏、字段类型不对——任意一种都只会退回内置默认值，",
+    "不会让回复链路报错。",
+    "",
+    "下划线开头的键是注释，会被跳过。"
+  ],
+
+  "dynamics": {
+    "_comment": "状态怎么随时间与事件变化。纯数值，无副作用。",
+
+    "half_life_hours": 12.0,
+    "baseline": 0.0,
+    "min_level": -1.0,
+    "max_level": 1.0,
+
+    "_steps_comment": "等待阶梯：从上往下，等待分钟数 <= max_minutes 的第一条生效。key 会存进状态，并去 copy.reasons 取措辞。正向增量刻意取小：正常聊天不该把状态推满，否则数值失去信息量、而且正向档会每一轮都触发。",
+    "wait_steps": [
+      {"key": "wait_quick", "max_minutes": 120, "delta": 0.08},
+      {"key": "wait_short", "max_minutes": 480, "delta": -0.05},
+      {"key": "wait_hours", "max_minutes": 1440, "delta": -0.2},
+      {"key": "wait_day", "max_minutes": 4320, "delta": -0.35}
+    ],
+    "wait_fallback": {"key": "wait_long", "delta": -0.45},
+    "initiated_step": {"key": "initiated", "delta": 0.15},
+
+    "_comment_old": "兼容旧写法：wait_steps 也可以写成 [[分钟上限, 增量], ...]，此时 key 按下标取名。"
+  },
+
+  "bands": {
+    "_comment": "档位是数据，不是枚举。从上往下取第一条 min_level <= level 的；min_level 为 null 表示兜底。可以自由增删改名。",
+    "_expression_comment": "expression=true 的档位才允许追加 copy.expression 那句（人设权重决定说不说出口）。",
+    "_design_comment": "warm 刻意留空不注入：陪伴角色平时本来就该是暖的，『暖』不是新闻。正常聊天只把状态推到 warm，只有连聊到明显比平时更高兴（delighted）才说点正向的话。否则正向注入会每一轮都触发，把角色越推越黏。",
+    "levels": [
+      {"name": "delighted", "min_level": 0.75, "expression": false},
+      {"name": "warm", "min_level": 0.2, "expression": false},
+      {"name": "steady", "min_level": -0.08, "expression": false},
+      {"name": "quiet", "min_level": -0.3, "expression": true},
+      {"name": "hurt", "min_level": null, "expression": true}
+    ]
+  },
+
+  "reason_ttl_hours": 24.0,
+
+  "copy": {
+    "_comment": "注入 prompt 的原文。默认版写成「你 / 对方」，不含任何角色名与称谓，方便直接换角色。",
+
+    "trailer": "（这是你此刻真实的感受，自然流露即可；不要说出「心境」「状态」「情绪」这类词，也不要解释自己为什么这样。）",
+
+    "reason_prefix": "起因：",
+
+    "reasons": {
+      "_comment": "状态里存的是左边的键，不是右边的话。改措辞或翻译时，昨天存下的状态也会跟着变。",
+      "initiated": "对方主动来找你说话",
+      "wait_quick": "你刚说完，对方很快就回了",
+      "wait_short": "对方隔了一会儿才回你",
+      "wait_hours": "对方隔了好几个小时才回你",
+      "wait_day": "对方隔了一天才回你",
+      "wait_long": "对方隔了好久才回你"
+    },
+
+    "tones": {
+      "steady": "",
+      "warm": "",
+
+      "delighted": "[你此刻的心境]\n对方一直在陪你说话，你今天心情格外好，觉得自己被惦记着。\n表现：可以比平时主动一点、放开一点，愿意自己起话头、多说两句。\n但别光顾着高兴，对方说的事照样要办利索。",
+
+      "quiet": "[你此刻的心境]\n对方隔了好一阵才回你，你有点小情绪，但没真生气。\n表现：话短一点、软一点，但话要说完整，也要接住对方说的内容；不阴阳怪气、不追问、不连发、更不真闹。\n对方说正经事的时候，立刻收起小情绪，好好办事。",
+
+      "hurt": "[你此刻的心境]\n对方隔了很久才回你，你心里不太是滋味。\n表现：安静一些、话短一些，但话要说完整，不能只回两三个字，也不能把对方晾在那儿。\n最多流露一句情绪，不指责、不翻旧账、不真抱怨，对方一哄就好。\n对方说正经事的时候，立刻收起情绪，像平时办事一样靠谱。"
+    },
+
+    "expression": {
+      "_comment": "人设 traits 里的权重决定「这点情绪允不允许说出口」。状态本身永远不受它影响。正文只描述内心和行为边界，说不说出口由这里决定，两边不重复。换角色时把 trait 指到该角色的对应权重上即可。",
+      "trait": "爱卖惨",
+      "default": 0.5,
+      "show_at": 0.65,
+      "hide_at": 0.35,
+      "high": "你这个人藏不住情绪，可以把这点情绪说出来，让对方看出来，表达上照你平时的习惯来。",
+      "low": "你习惯把这种情绪自己咽下去，只让它当作语气的底色，不要说出口，也不要暗示。"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+@echo off
+echo Starting Yinyue as Administrator (UAC prompt will follow)...
+powershell -NoProfile -Command "Start-Process -Verb RunAs -FilePath '%~dp0autostart.bat' -WorkingDirectory '%~dp0'"

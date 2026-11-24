@@ -1,0 +1,29 @@
+# 鲸鲸 · 可选增强依赖
+#
+# 这些都不是启动必需 —— 代码里全部做了 try/except 守卫，缺失时只降级对应能力。
+# 装齐后体验更完整。按需选择性安装：
+#     pip install -r requirements-optional.txt
+#
+# 注意 openai-whisper 会拉进 torch（体积较大），只想装轻量的部分请手动挑行安装。
+
+# ---------- 语音消息转写 ----------
+# 位置: db/sync_service.py::_transcribe_voice
+# 缺失时的行为: except ImportError -> 记 whisper_not_installed 日志，返回空串
+#              （语音消息不加文字转写；不会崩）
+# 体积: 依赖 torch。装法决定版本，实测差异很大：
+#   · `pip install openai-whisper`            -> torch 2.14.0（**CPU 版**，约 200MB）
+#     这是 PyPI 默认给 Windows 的 wheel，转写走 CPU，短语音几秒，够用。
+#   · 想要 GPU 加速（如本机系统 Python 里那套 2.14.0+cu130，约 2.5GB），
+#     需显式指定 PyTorch CUDA 索引，本文件不覆盖这种装法：
+#         pip install torch --index-url https://download.pytorch.org/whl/cu130
+# 注: 首次转写会下载 whisper 模型到 ~/.cache/whisper（base 约 150MB）。
+openai-whisper>=20250625
+
+# ---------- 桌面系统通知 ----------
+# 位置: notify/push.py
+# 缺失时的行为: 逐个后端 try/except，全部不可用则跳过通知
+# 备注: win10toast 已多年未更新，在 Python 3.12+ 上可能安装失败；
+#       plyer 是跨平台替代后端，两者装任一即可。
+#       （2026-09-27 在 Python 3.14 隔离环境里的实际选择：只装 plyer，跳过 win10toast。）
+plyer>=2.1.0
+win10toast>=0.9
